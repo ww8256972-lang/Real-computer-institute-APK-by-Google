@@ -1,0 +1,6 @@
+{
+  "name": "EduSync",
+  "description": "Complete Computer Institute Management System with Student and Admin portals, 100K+ records database, offline sync, exams, admit cards, fees, certificates, and Gemini AI Tutor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

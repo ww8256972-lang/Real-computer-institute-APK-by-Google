@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "students": {
+      "fields": {
+        "studentId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "rollNo": { "type": "string" },
+        "courseId": { "type": "string" },
+        "courseName": { "type": "string" },
+        "batch": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "totalCourseFee": { "type": "number" },
+        "feePaid": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "scheduled_exams": {
+      "fields": {
+        "examId": { "type": "string" },
+        "title": { "type": "string" },
+        "courseId": { "type": "string" },
+        "scheduledStartTime": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "exam_submissions": {
+      "fields": {
+        "examId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "score": { "type": "number" },
+        "percentage": { "type": "number" },
+        "grade": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "timetables": {
+      "fields": {
+        "dayOfWeek": { "type": "string" },
+        "courseId": { "type": "string" },
+        "batchName": { "type": "string" },
+        "subject": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "roomOrLab": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" }
+      }
+    }
+  }
+}

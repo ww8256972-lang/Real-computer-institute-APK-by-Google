@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin' ||
+        request.auth.uid == 'admin_console'
+      );
+    }
+
+    // Students collection
+    match /students/{studentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == studentId);
+    }
+
+    // Teachers collection
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Courses & Batches
+    match /courses/{courseId} {
+      allow read: if true; // Public course catalog
+      allow write: if isAdmin();
+    }
+
+    match /batches/{batchId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Attendance
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isAuthenticated();
+    }
+
+    // Fees & Transactions
+    match /fee_records/{recordId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Timetables
+    match /timetables/{timetableId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Scheduled Exams & Submissions
+    match /scheduled_exams/{examId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /exam_submissions/{submissionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Notices
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Digital Certificates
+    match /digital_certificates/{certId} {
+      allow read: if true; // Public credential verification
+      allow write: if isAdmin();
+    }
+
+    // Parent Guardians
+    match /parent_guardians/{guardianId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isOwner(guardianId);
+    }
+  }
+}

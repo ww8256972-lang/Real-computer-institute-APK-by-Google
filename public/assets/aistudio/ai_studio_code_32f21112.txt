@@ -1,0 +1,71 @@
+Role: Senior Android DevOps Engineer & Build Systems Architect
+Project: ASLAM RECORD (or Android Native Kotlin / Jetpack Compose application)
+Task: Build and configure a production-grade, automated GitHub Actions CI/CD pipeline, headless Gradle build configuration, keystore management, and APK generation system.
+
+Please set up the complete automated GitHub Actions workflows, build scripts, and Gradle configurations following these exact requirements:
+
+1. WORKFLOW PIPELINE ARCHITECTURE (.github/workflows/)
+Generate three dedicated, self-contained, and production-tested GitHub Actions workflow YAML files:
+
+A. CI & Automatic Build Workflow (`.github/workflows/android.yml`):
+- Triggers: On push and pull_request to "main" and "master" branches, plus `workflow_dispatch` for manual runs.
+- Environment: Ubuntu Latest with Temurin JDK 17 and built-in Gradle caching (`actions/setup-java@v4`).
+- Android SDK: Accept SDK licenses automatically via `yes | sdkmanager --licenses || true`.
+- Environment & Secrets: Read `GEMINI_API_KEY` from repository secrets and securely inject into `.env`.
+- Headless Environment Fix (CRITICAL):
+  Set global environment variables to prevent KSP / IntelliJ PSI `AWT-EventQueue-0` NullPointerExceptions on headless Linux runners:
+  `JAVA_OPTS: "-Djava.awt.headless=true"`
+  `GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8 -Djava.awt.headless=true' -Djava.awt.headless=true"`
+- Keystore Management:
+  - If `debug.keystore.base64` exists, decode it; if not, automatically generate a fresh `debug.keystore` using `keytool`.
+  - If `KEYSTORE_BASE64` secret exists, decode it to `my-upload-key.jks` and expose passwords via environment variables.
+- Tasks Execution:
+  - Run Unit Tests: `./gradlew testDebugUnitTest --no-daemon -Djava.awt.headless=true`
+  - Build Debug APK: `./gradlew assembleDebug --no-daemon -Djava.awt.headless=true`
+  - Build Release APK (conditional on keystore presence): `./gradlew assembleRelease --no-daemon -Djava.awt.headless=true`
+- Artifact Upload:
+  Upload generated Debug and Release APKs with `actions/upload-artifact@v4` with a 14-day retention period.
+
+B. Manual Build & Parameterized Workflow (`.github/workflows/manual-build.yml`):
+- Triggers: `workflow_dispatch` with input dropdowns:
+  - `build_type`: Choice between "debug", "release", or "both".
+  - `run_tests`: Boolean toggle to skip or run unit tests.
+- Steps:
+  - Dynamically builds the requested APK flavor.
+  - Automatically signs the release APK if release keystore secrets exist.
+  - Uploads the resulting APKs as downloadable workflow artifacts with custom run identifiers.
+
+C. Automated Tagged Release Workflow (`.github/workflows/release-apk.yml`):
+- Triggers: Push of version git tags (`v*.*.*`, e.g., `v1.0.0`).
+- Steps:
+  - Decodes signing keystore.
+  - Compiles signed Release APK (`./gradlew assembleRelease`).
+  - Automatically creates a GitHub Release draft/tag using `softprops/action-gh-release@v2`.
+  - Attaches the signed APK directly to the GitHub Release with changelog notes.
+
+2. GRADLE & BUILD SCRIPTS OPTIMIZATION
+Configure the project Gradle files to guarantee smooth, headless execution in continuous integration:
+
+A. `gradle.properties`:
+- Add headless JVM arguments and memory limits:
+  `org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -Djava.awt.headless=true -Dsun.awt.noerasebackground=true`
+- Enable Gradle caching and configuration cache:
+  `org.gradle.caching=true`
+  `org.gradle.configuration-cache=true`
+  `org.gradle.parallel=true`
+  `kotlin.compiler.execution.strategy=in-process`
+  `googleServices.missing.passthrough=true`
+
+B. `app/build.gradle.kts`:
+- Keystore Signing Configuration:
+  Configure `signingConfigs` for `release` and `debugConfig` to dynamically fallback to `debug.keystore` if release credentials are absent, preventing CI build breaks.
+- Unit Test Headless System Properties:
+  ```kotlin
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        it.systemProperty("java.awt.headless", "true")
+      }
+    }
+  }
