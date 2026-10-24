@@ -76,6 +76,11 @@ android {
       isIncludeAndroidResources = true
       all {
         it.systemProperty("java.awt.headless", "true")
+        it.javaLauncher.set(
+          javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+          }
+        )
       }
     }
   }
