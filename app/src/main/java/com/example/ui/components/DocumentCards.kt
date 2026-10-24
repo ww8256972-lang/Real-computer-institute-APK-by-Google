@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,12 +12,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ExamResultEntity
 import com.example.data.local.entity.FeeRecordEntity
 import com.example.data.local.entity.StudentEntity
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Professional Digital Student Identity Card with photo, course, batch, validity & QR verification code.
@@ -398,8 +404,12 @@ fun FeeReceiptCard(
     modifier: Modifier = Modifier,
     onDownload: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val displayName = if (record.studentName.isNotBlank()) record.studentName else studentName
     val isManualCounter = record.paymentType == "MANUAL_COUNTER"
+    var showReceiptModal by remember { mutableStateOf(false) }
+    var generatedPdfPath by remember { mutableStateOf<String?>(null) }
+    var pdfError by remember { mutableStateOf<String?>(null) }
 
     Card(
         modifier = modifier
@@ -509,7 +519,17 @@ fun FeeReceiptCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             OutlinedButton(
-                onClick = onDownload,
+                onClick = {
+                    val result = generateFeeReceiptPdfFile(context, record, displayName)
+                    result.onSuccess { file ->
+                        generatedPdfPath = file.absolutePath
+                        pdfError = null
+                    }.onFailure { err ->
+                        pdfError = err.localizedMessage ?: "Failed to write PDF receipt"
+                    }
+                    showReceiptModal = true
+                    onDownload()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("download_receipt_btn_${record.receiptNumber}"),
@@ -524,6 +544,203 @@ fun FeeReceiptCard(
                 Text("View & Download PDF Receipt", style = MaterialTheme.typography.labelMedium)
             }
         }
+    }
+
+    if (showReceiptModal) {
+        AlertDialog(
+            onDismissRequest = { showReceiptModal = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        tint = Color(0xFF15803D)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Official Fee Receipt PDF", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(
+                            text = "Receipt #${record.receiptNumber} • Verified Record",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "EDUSYNC COMPUTER ACADEMY",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF0F172A),
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "ISO 9001:2015 Certified • Official Tuition Fee Receipt",
+                                color = Color(0xFF2563EB),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            HorizontalDivider(color = Color(0xFFE2E8F0))
+                            ReceiptDetailRow("Receipt No", record.receiptNumber)
+                            ReceiptDetailRow("Payment Date", record.paymentDate)
+                            ReceiptDetailRow("Student Name", displayName.ifBlank { record.studentId })
+                            ReceiptDetailRow("Student ID", record.studentId)
+                            if (record.courseName.isNotBlank()) {
+                                ReceiptDetailRow("Course", record.courseName)
+                            }
+                            if (record.batch.isNotBlank()) {
+                                ReceiptDetailRow("Batch", record.batch)
+                            }
+                            ReceiptDetailRow("Payment Mode", record.paymentMethod)
+                            ReceiptDetailRow("Transaction ID", record.transactionId)
+                            ReceiptDetailRow("Amount Paid", "₹${"%.2f".format(record.amount)}")
+                            ReceiptDetailRow("Status", "PAID & VERIFIED")
+                            if (record.remarks.isNotBlank()) {
+                                ReceiptDetailRow("Remarks", record.remarks)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Authorized Signatory",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF334155)
+                                    )
+                                    Text(
+                                        text = "Recorded by: ${record.recordedBy}",
+                                        fontSize = 9.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                                QrCodeView(
+                                    dataString = "RECEIPT:${record.receiptNumber}:${record.studentId}:${record.amount}",
+                                    size = 52.dp
+                                )
+                            }
+                        }
+                    }
+
+                    if (generatedPdfPath != null) {
+                        Surface(
+                            color = Color(0xFFDCFCE7),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF15803D),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "PDF downloaded & saved: ${record.receiptNumber}.pdf",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF14532D),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    } else if (pdfError != null) {
+                        Text(
+                            text = pdfError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showReceiptModal = false }) {
+                    Icon(Icons.Default.DownloadDone, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Done")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ReceiptDetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = "$label:", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
+        Text(text = value, fontSize = 11.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+    }
+}
+
+fun generateFeeReceiptPdfFile(
+    context: Context,
+    record: FeeRecordEntity,
+    studentName: String
+): Result<File> {
+    return try {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint().apply { isAntiAlias = true }
+
+        paint.textSize = 18f
+        paint.isFakeBoldText = true
+        canvas.drawText("EDUSYNC COMPUTER ACADEMY", 40f, 50f, paint)
+
+        paint.textSize = 12f
+        paint.isFakeBoldText = false
+        canvas.drawText("Official Tuition Fee Payment Receipt (ISO 9001:2015)", 40f, 72f, paint)
+        canvas.drawLine(40f, 85f, 555f, 85f, paint)
+
+        var y = 115f
+        val lines = listOf(
+            "Receipt Number: ${record.receiptNumber}",
+            "Payment Date: ${record.paymentDate}",
+            "Student Name: ${studentName.ifBlank { record.studentName.ifBlank { record.studentId } }}",
+            "Student ID: ${record.studentId}",
+            "Course: ${record.courseName}",
+            "Batch: ${record.batch}",
+            "Amount Paid: INR ${"%.2f".format(record.amount)}",
+            "Payment Mode: ${record.paymentMethod} (${record.paymentType})",
+            "Transaction ID: ${record.transactionId}",
+            "Remarks: ${record.remarks}",
+            "Recorded By: ${record.recordedBy}",
+            "Verification Status: OFFICIAL VERIFIED RECEIPT"
+        )
+        for (line in lines) {
+            canvas.drawText(line, 40f, y, paint)
+            y += 26f
+        }
+
+        pdfDocument.finishPage(page)
+        val dir = File(context.filesDir, "receipts").apply { mkdirs() }
+        val safeName = record.receiptNumber.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val file = File(dir, "$safeName.pdf")
+        FileOutputStream(file).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+        Result.success(file)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 }
 

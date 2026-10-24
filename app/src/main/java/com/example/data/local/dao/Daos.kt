@@ -248,6 +248,9 @@ interface AcademicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStudyMaterials(materials: List<StudyMaterialEntity>)
 
+    @Update
+    suspend fun updateStudyMaterial(material: StudyMaterialEntity)
+
     @Query("DELETE FROM study_materials WHERE id = :id")
     suspend fun deleteStudyMaterial(id: Long)
 
@@ -341,6 +344,9 @@ interface TimetableDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTimetables(entries: List<TimetableEntity>)
 
+    @Update
+    suspend fun updateTimetable(entry: TimetableEntity)
+
     @Query("DELETE FROM timetables WHERE id = :id")
     suspend fun deleteTimetable(id: Long)
 
@@ -394,6 +400,9 @@ interface ParentGuardianDao {
 
     @Query("UPDATE parent_guardians SET status = :status WHERE guardianId = :guardianId")
     suspend fun updateStatus(guardianId: String, status: String)
+
+    @Query("DELETE FROM parent_guardians WHERE guardianId = :guardianId")
+    suspend fun deleteGuardian(guardianId: String)
 }
 
 @Dao
@@ -461,6 +470,9 @@ interface DigitalBookDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBooks(books: List<DigitalBookEntity>)
+
+    @Update
+    suspend fun updateBook(book: DigitalBookEntity)
 
     @Query("UPDATE digital_books SET downloadCount = downloadCount + 1, isDownloaded = 1 WHERE id = :id")
     suspend fun recordDownload(id: Long)

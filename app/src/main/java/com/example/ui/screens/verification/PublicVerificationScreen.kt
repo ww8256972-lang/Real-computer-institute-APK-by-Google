@@ -35,7 +35,7 @@ fun PublicVerificationScreen(
 ) {
     var selectedMode by remember { mutableIntStateOf(0) } // 0 = Certificate, 1 = Student ID
     var queryText by remember { mutableStateOf("VERIFY-ADCA-8941") }
-    var idQueryText by remember { mutableStateOf("STU-2026-001") }
+    var idQueryText by remember { mutableStateOf("EDU-2026-1001") }
 
     val coroutineScope = rememberCoroutineScope()
     var certResult by remember { mutableStateOf<CertificateVerificationResult?>(null) }
@@ -43,8 +43,9 @@ fun PublicVerificationScreen(
     var isChecking by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Initial check for demo certificate
+        // Initial check for seeded certificate and student ID
         certResult = instituteRepository.verifyDigitalCertificate(queryText)
+        idResult = instituteRepository.verifyStudentIdCard(idQueryText)
     }
 
     Scaffold(
@@ -121,7 +122,7 @@ fun PublicVerificationScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Enter the Certificate Number (e.g. CERT-2026-8941) or QR Token printed on the physical/digital certificate.",
+                            text = "Enter the Certificate Number (e.g. CERT-2026-8941), QR Token (VERIFY-ADCA-8941), or scanned QR verification URL.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -129,13 +130,37 @@ fun PublicVerificationScreen(
                         OutlinedTextField(
                             value = queryText,
                             onValueChange = { queryText = it },
-                            label = { Text("Certificate Reference / QR Token") },
+                            label = { Text("Certificate Reference / QR Token / URL") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("verify_cert_input"),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) }
                         )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AssistChip(
+                                onClick = {
+                                    queryText = "CERT-2026-8941"
+                                    coroutineScope.launch {
+                                        certResult = instituteRepository.verifyDigitalCertificate(queryText)
+                                    }
+                                },
+                                label = { Text("CERT-2026-8941", fontSize = 11.sp) }
+                            )
+                            AssistChip(
+                                onClick = {
+                                    queryText = "VERIFY-ADCA-8941"
+                                    coroutineScope.launch {
+                                        certResult = instituteRepository.verifyDigitalCertificate(queryText)
+                                    }
+                                },
+                                label = { Text("QR Token", fontSize = 11.sp) }
+                            )
+                        }
 
                         Button(
                             onClick = {
@@ -161,6 +186,8 @@ fun PublicVerificationScreen(
                 certResult?.let { result ->
                     val isRevoked = result.status == "CANCELLED"
                     val isFound = result.status != "NOT_FOUND"
+                    val labelColor = Color(0xFF475569)
+                    val valueColor = Color(0xFF0F172A)
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -231,38 +258,38 @@ fun PublicVerificationScreen(
                             )
 
                             if (isFound) {
-                                HorizontalDivider()
+                                HorizontalDivider(color = Color(0xFFCBD5E1))
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Certificate Number:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.certificateNumber, fontWeight = FontWeight.Bold)
+                                        Text("Certificate Number:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.certificateNumber, fontWeight = FontWeight.Bold, color = valueColor)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Student Name:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.studentName, fontWeight = FontWeight.Bold)
+                                        Text("Student Name:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.studentName, fontWeight = FontWeight.Bold, color = valueColor)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Roll Number:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.rollNo, fontWeight = FontWeight.Medium)
+                                        Text("Roll Number:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.rollNo, fontWeight = FontWeight.Medium, color = valueColor)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Course Completed:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.courseName, fontWeight = FontWeight.Bold, maxLines = 1)
+                                        Text("Course Completed:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.courseName, fontWeight = FontWeight.Bold, maxLines = 1, color = valueColor)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Grade Awarded:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                                        Text("Grade Awarded:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
                                         Text(result.grade, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Issue Date:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.issueDate)
+                                        Text("Issue Date:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.issueDate, color = valueColor)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Issued By:", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                                        Text(result.issuedBy)
+                                        Text("Issued By:", style = MaterialTheme.typography.bodyMedium, color = labelColor)
+                                        Text(result.issuedBy, color = valueColor)
                                     }
 
                                     if (isRevoked && !result.cancellationReason.isNullOrBlank()) {
@@ -275,7 +302,7 @@ fun PublicVerificationScreen(
                                                 Text("Cancellation Audit Reason:", fontWeight = FontWeight.Bold, color = Color(0xFFB91C1C), fontSize = 12.sp)
                                                 Text(result.cancellationReason, color = Color(0xFF991B1B), fontSize = 13.sp)
                                                 if (result.cancelledBy != null) {
-                                                    Text("Revoked by: ${result.cancelledBy}", fontSize = 11.sp, color = Color.Gray)
+                                                    Text("Revoked by: ${result.cancelledBy}", fontSize = 11.sp, color = Color(0xFF475569))
                                                 }
                                             }
                                         }
@@ -288,7 +315,7 @@ fun PublicVerificationScreen(
                                         data = "EDUSYNC-CERT:${result.certificateNumber}:${result.rollNo}",
                                         sizeDp = 130.dp
                                     )
-                                    Text("Cryptographic Verification Seal", fontSize = 11.sp, color = Color.Gray)
+                                    Text("Cryptographic Verification Seal", fontSize = 11.sp, color = labelColor)
                                 }
                             } else {
                                 Text(
@@ -317,7 +344,7 @@ fun PublicVerificationScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Scan or type the Student ID (e.g. STU-2026-001) or Roll Number to verify active enrollment status.",
+                            text = "Scan or type the Student ID (e.g. EDU-2026-1001), Roll Number (1001), or QR payload to verify active enrollment status.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -325,13 +352,37 @@ fun PublicVerificationScreen(
                         OutlinedTextField(
                             value = idQueryText,
                             onValueChange = { idQueryText = it },
-                            label = { Text("Student ID or Roll No") },
+                            label = { Text("Student ID, Roll No, or QR Payload") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("verify_id_input"),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
                         )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AssistChip(
+                                onClick = {
+                                    idQueryText = "EDU-2026-1001"
+                                    coroutineScope.launch {
+                                        idResult = instituteRepository.verifyStudentIdCard(idQueryText)
+                                    }
+                                },
+                                label = { Text("EDU-2026-1001", fontSize = 11.sp) }
+                            )
+                            AssistChip(
+                                onClick = {
+                                    idQueryText = "EDU-2026-1002"
+                                    coroutineScope.launch {
+                                        idResult = instituteRepository.verifyStudentIdCard(idQueryText)
+                                    }
+                                },
+                                label = { Text("EDU-2026-1002", fontSize = 11.sp) }
+                            )
+                        }
 
                         Button(
                             onClick = {
@@ -385,7 +436,7 @@ fun PublicVerificationScreen(
                                 Text(
                                     text = message,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = Color(0xFF0F172A)
                                 )
                             }
                         }

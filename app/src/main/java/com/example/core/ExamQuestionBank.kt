@@ -51,6 +51,60 @@ object ExamQuestionBank {
         return list
     }
 
+    fun serializeAllowedStudentIds(studentIds: List<String>): String {
+        if (studentIds.isEmpty()) return "ALL"
+        val arr = JSONArray()
+        for (id in studentIds) {
+            arr.put(id)
+        }
+        return arr.toString()
+    }
+
+    fun deserializeAllowedStudentIds(jsonStr: String): List<String> {
+        if (jsonStr.isBlank() || jsonStr == "ALL") return emptyList()
+        val list = mutableListOf<String>()
+        try {
+            if (jsonStr.trim().startsWith("[")) {
+                val arr = JSONArray(jsonStr)
+                for (i in 0 until arr.length()) {
+                    list.add(arr.getString(i))
+                }
+            } else {
+                list.addAll(jsonStr.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun deserializeAnswers(jsonStr: String): Map<Int, Int> {
+        if (jsonStr.isBlank()) return emptyMap()
+        val map = mutableMapOf<Int, Int>()
+        try {
+            val obj = JSONObject(jsonStr)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val qIdx = key.toIntOrNull()
+                if (qIdx != null) {
+                    map[qIdx] = obj.optInt(key, 0)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return map
+    }
+
+    fun serializeAnswers(answers: Map<Int, Int>): String {
+        val obj = JSONObject()
+        for ((k, v) in answers) {
+            obj.put(k.toString(), v)
+        }
+        return obj.toString()
+    }
+
     fun getDefault50Questions(courseName: String = "Advance Diploma in Computer Applications (ADCA)"): List<ExamQuestion> {
         val questions = listOf(
             // 1-5: Computer Fundamentals

@@ -449,20 +449,10 @@ fun ParentFeeLedgerTab(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(feeRecords) { record ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(record.receiptNumber, fontWeight = FontWeight.Bold)
-                                Text("₹${"%.0f".format(record.amount)}", fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
-                            }
-                            Text("Date: ${record.paymentDate} • Mode: ${record.paymentMethod}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Txn Ref: ${record.transactionId} • ${record.remarks}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    com.example.ui.components.FeeReceiptCard(
+                        record = record,
+                        studentName = student.fullName
+                    )
                 }
             }
         }

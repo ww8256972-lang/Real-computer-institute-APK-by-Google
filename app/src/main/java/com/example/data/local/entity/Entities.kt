@@ -210,6 +210,7 @@ data class AssignmentEntity(
     val batchName: String? = null, // specific batch or all
     val createdById: String = "ADMIN", // TeacherId or ADMIN
     val createdByName: String = "Administrator",
+    val attachmentUri: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -226,6 +227,7 @@ data class SubmissionEntity(
     val assignmentId: Long,
     val studentId: String,
     val submissionContent: String,
+    val fileUri: String = "",
     val submittedAt: Long = System.currentTimeMillis(),
     val marksObtained: Int? = null,
     val feedback: String? = null,
@@ -279,8 +281,8 @@ data class TimetableEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val dayOfWeek: String, // Monday, Tuesday, Wednesday, Thursday, Friday, Saturday
-    val courseId: String,
-    val courseName: String,
+    val courseId: String = "",
+    val courseName: String = "",
     val batchName: String,
     val subject: String,
     val teacherId: String,
@@ -416,6 +418,9 @@ data class DigitalBookEntity(
     val contentSummary: String
 )
 
+val DigitalBookEntity.bookCode: String
+    get() = "LIB-${100 + id}"
+
 @Entity(
     tableName = "scheduled_exams",
     indices = [
@@ -476,11 +481,12 @@ data class ExamSubmissionEntity(
 ) {
     val submissionId: Long
         get() = id
-    val isAutoSubmitted: Boolean
-        get() = autoSubmitted
     val isPassed: Boolean
         get() = (grade == "A+" || grade == "A" || grade == "B" || grade == "C") && (score ?: 0) >= 20
 }
+
+val ExamSubmissionEntity.isAutoSubmitted: Boolean
+    get() = autoSubmitted
 
 data class ExamQuestion(
     val id: Int,

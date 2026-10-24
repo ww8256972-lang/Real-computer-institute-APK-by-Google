@@ -28,10 +28,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import com.example.core.QrCodeWidget
 import com.example.core.SecurityUtils
 import com.example.data.local.entity.*
-import com.example.data.local.ExamQuestionBank
+import com.example.core.ExamQuestionBank
 import com.example.data.repository.*
 import com.example.ui.components.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 /**
  * Admin Panel (Requirement 2 & 5)
@@ -78,37 +79,57 @@ fun AdminMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Overview") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 0) {
+                            Icon(Icons.Default.Dashboard, contentDescription = "Overview")
+                        }
+                    },
                     label = { Text("Overview") },
-                    modifier = Modifier.testTag("tab_admin_overview")
+                    modifier = Modifier.pullDownTabInteraction(selected = selectedTab == 0).testTag("tab_admin_overview")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.People, contentDescription = "Students") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 1) {
+                            Icon(Icons.Default.People, contentDescription = "Students")
+                        }
+                    },
                     label = { Text("Students") },
-                    modifier = Modifier.testTag("tab_admin_students")
+                    modifier = Modifier.pullDownTabInteraction(selected = selectedTab == 1).testTag("tab_admin_students")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.School, contentDescription = "Teachers") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 2) {
+                            Icon(Icons.Default.School, contentDescription = "Teachers")
+                        }
+                    },
                     label = { Text("Teachers") },
-                    modifier = Modifier.testTag("tab_admin_teachers")
+                    modifier = Modifier.pullDownTabInteraction(selected = selectedTab == 2).testTag("tab_admin_teachers")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Payments, contentDescription = "Fees") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 3) {
+                            Icon(Icons.Default.Payments, contentDescription = "Fees")
+                        }
+                    },
                     label = { Text("Fees & Dues") },
-                    modifier = Modifier.testTag("tab_admin_fees")
+                    modifier = Modifier.pullDownTabInteraction(selected = selectedTab == 3).testTag("tab_admin_fees")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Class, contentDescription = "Academic") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 4) {
+                            Icon(Icons.Default.Class, contentDescription = "Academic")
+                        }
+                    },
                     label = { Text("Academic") },
-                    modifier = Modifier.testTag("tab_admin_academic")
+                    modifier = Modifier.pullDownTabInteraction(selected = selectedTab == 4).testTag("tab_admin_academic")
                 )
             }
         }
@@ -202,30 +223,91 @@ fun AdminOverviewTab(
             )
         }
 
-        // Quick Operations
+        // Quick Operations (Screen 3 Reference: 4 Administrative Action Cards)
         Text("Administrative Actions", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedCard(
                 onClick = onNavigateToStudents,
                 modifier = Modifier.weight(1f).testTag("quick_action_students"),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.PersonAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text("Add Student", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Text("New Enrollment", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             OutlinedCard(
                 onClick = onNavigateToStudents,
                 modifier = Modifier.weight(1f).testTag("quick_action_search"),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE0F2FE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text("Search Roster", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Text("Directory Lookup", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedCard(
+                onClick = onNavigateToStudents,
+                modifier = Modifier.weight(1f).testTag("quick_action_batches"),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFEF3C7)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Groups, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Manage Batches", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Text("Timetable & Labs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            OutlinedCard(
+                onClick = onNavigateToStudents,
+                modifier = Modifier.weight(1f).testTag("quick_action_reports"),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEDE9FE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Assessment, contentDescription = null, tint = Color(0xFF7C3AED), modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Generate Reports", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Text("Attendance & Dues", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -292,6 +374,15 @@ fun AdminStudentsTab(repository: InstituteRepository) {
         Color(0xFFEA580C) to "Orange Avatar"
     )
 
+    val guardians by repository.getAllGuardians().collectAsState(initial = emptyList())
+    var showParentAccountsDialog by remember { mutableStateOf(false) }
+    var newParentName by remember { mutableStateOf("") }
+    var newParentUsername by remember { mutableStateOf("") }
+    var newParentPassword by remember { mutableStateOf("") }
+    var newParentPhone by remember { mutableStateOf("+91 98765 43210") }
+    var newParentStudentId by remember { mutableStateOf("EDU-2026-1001") }
+    var newParentRelation by remember { mutableStateOf("Father") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -304,17 +395,30 @@ fun AdminStudentsTab(repository: InstituteRepository) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("Student Directory", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text("${students.size} Students Enrolled", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text("${students.size} Students Enrolled • ${guardians.size} Parent Accounts", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
-            Button(
-                onClick = { showAddStudentDialog = true },
-                modifier = Modifier.testTag("admin_add_student_btn")
-            ) {
-                Icon(Icons.Default.PersonAdd, contentDescription = null)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Add Student")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        newParentStudentId = students.firstOrNull()?.studentId ?: "EDU-2026-1001"
+                        showParentAccountsDialog = true
+                    },
+                    modifier = Modifier.testTag("admin_parent_accounts_btn")
+                ) {
+                    Icon(Icons.Default.FamilyRestroom, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Parent IDs")
+                }
+                Button(
+                    onClick = { showAddStudentDialog = true },
+                    modifier = Modifier.testTag("admin_add_student_btn")
+                ) {
+                    Icon(Icons.Default.PersonAdd, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add Student")
+                }
             }
         }
 
@@ -840,6 +944,139 @@ fun AdminStudentsTab(repository: InstituteRepository) {
             },
             dismissButton = {
                 TextButton(onClick = { studentToResetPassword = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showParentAccountsDialog) {
+        AlertDialog(
+            onDismissRequest = { showParentAccountsDialog = false },
+            title = { Text("Parent / Guardian Accounts", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Create a Parent ID linked to a Student ID so parents can sign in to the Parent Portal:",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    OutlinedTextField(
+                        value = newParentName,
+                        onValueChange = { newParentName = it },
+                        label = { Text("Parent / Guardian Full Name *") },
+                        modifier = Modifier.fillMaxWidth().testTag("parent_full_name_input"),
+                        singleLine = true
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = newParentUsername,
+                            onValueChange = { newParentUsername = it },
+                            label = { Text("Login Username *") },
+                            modifier = Modifier.weight(1f).testTag("parent_username_input"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = newParentPassword,
+                            onValueChange = { newParentPassword = it },
+                            label = { Text("Password *") },
+                            modifier = Modifier.weight(1f).testTag("parent_password_input"),
+                            singleLine = true
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = newParentStudentId,
+                            onValueChange = { newParentStudentId = it },
+                            label = { Text("Linked Student ID *") },
+                            placeholder = { Text("EDU-2026-1001") },
+                            modifier = Modifier.weight(1f).testTag("parent_linked_student_input"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = newParentRelation,
+                            onValueChange = { newParentRelation = it },
+                            label = { Text("Relation") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                    OutlinedTextField(
+                        value = newParentPhone,
+                        onValueChange = { newParentPhone = it },
+                        label = { Text("Parent Phone Number") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = {
+                            if (newParentName.isNotBlank() && newParentUsername.isNotBlank() && newParentPassword.isNotBlank() && newParentStudentId.isNotBlank()) {
+                                scope.launch {
+                                    val res = repository.createParentGuardian(
+                                        fullName = newParentName,
+                                        username = newParentUsername,
+                                        rawPassword = newParentPassword,
+                                        phone = newParentPhone,
+                                        linkedStudentId = newParentStudentId,
+                                        relationship = newParentRelation,
+                                        adminUser = "Admin Panel"
+                                    )
+                                    if (res.isSuccess) {
+                                        val g = res.getOrThrow()
+                                        newParentName = ""
+                                        newParentUsername = ""
+                                        newParentPassword = ""
+                                        alertMsg = "Parent account '${g.username}' (${g.guardianId}) created and linked to student ${g.linkedStudentId}!"
+                                    } else {
+                                        alertMsg = "Error: ${res.exceptionOrNull()?.message}"
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("btn_create_parent_account")
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Create & Link Parent ID")
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text("Active Parent Accounts (${guardians.size}):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    guardians.forEach { g ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("${g.fullName} (${g.relationship})", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("Username: ${g.username} • ID: ${g.guardianId}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    Text("Linked Student: ${g.linkedStudentId}", fontSize = 11.sp)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            repository.deleteParentGuardian(g.guardianId, "Admin Panel")
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Parent", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showParentAccountsDialog = false }) { Text("Close") }
             }
         )
     }
@@ -1473,7 +1710,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
     var certCancelReason by remember { mutableStateOf("") }
 
     // Student Insights state
-    var insightStudentId by remember { mutableStateOf("STU-2026-001") }
+    var insightStudentId by remember { mutableStateOf("EDU-2026-1001") }
     var currentInsight by remember { mutableStateOf<StudentPerformanceInsight?>(null) }
 
     // Scheduled Exams state (Requirement 8)
@@ -1498,34 +1735,60 @@ fun AdminAcademicTab(repository: InstituteRepository) {
     var editCourseDescription by remember { mutableStateOf("") }
     var editCourseSyllabus by remember { mutableStateOf("") }
 
-    // Batch Editing & Student Assignment state (Requirement 4)
+    // Batch Editing & Student Assignment state (Requirement 4 & 7: 24-hour HH:mm format)
+    var batchStartTime24h by remember { mutableStateOf("09:00") }
+    var batchEndTime24h by remember { mutableStateOf("11:00") }
+    var batchTimeError by remember { mutableStateOf<String?>(null) }
     var batchToEdit by remember { mutableStateOf<BatchEntity?>(null) }
     var editBatchName by remember { mutableStateOf("") }
     var editBatchTiming by remember { mutableStateOf("") }
+    var editBatchStart24h by remember { mutableStateOf("09:00") }
+    var editBatchEnd24h by remember { mutableStateOf("11:00") }
     var editBatchCourseId by remember { mutableStateOf("") }
     var batchForStudentEnrollment by remember { mutableStateOf<BatchEntity?>(null) }
     var selectedEnrollmentStudentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    // Custom Timetable Entry with conflict detection state (Requirement 4)
+    // Custom Timetable Entry with conflict detection + Edit/View/Delete state (Requirement 5)
     var showCustomTimetableDialog by remember { mutableStateOf(false) }
     var customScheduleDay by remember { mutableStateOf("Monday") }
-    var customScheduleStartTime by remember { mutableStateOf("09:00 AM") }
-    var customScheduleEndTime by remember { mutableStateOf("11:00 AM") }
+    var customScheduleStartTime by remember { mutableStateOf("09:00") }
+    var customScheduleEndTime by remember { mutableStateOf("11:00") }
     var customScheduleBatchName by remember { mutableStateOf("") }
     var customScheduleSubject by remember { mutableStateOf("") }
     var customScheduleTeacherId by remember { mutableStateOf("") }
     var customScheduleRoom by remember { mutableStateOf("Lab 1 (Accounting Systems)") }
     var scheduleConflictError by remember { mutableStateOf<String?>(null) }
+    var timetableToView by remember { mutableStateOf<TimetableEntity?>(null) }
+    var timetableToEdit by remember { mutableStateOf<TimetableEntity?>(null) }
+    var timetableToDelete by remember { mutableStateOf<TimetableEntity?>(null) }
+
+    // Library Management state (Requirement 1 & 7: Upload, View, Download, Rename/Edit, Delete with confirmation)
+    var showUploadBookDialog by remember { mutableStateOf(false) }
+    var newBookTitle by remember { mutableStateOf("") }
+    var newBookAuthor by remember { mutableStateOf("") }
+    var newBookSubject by remember { mutableStateOf("Computer Applications") }
+    var newBookCategory by remember { mutableStateOf("E-BOOK") }
+    var newBookSize by remember { mutableStateOf("4.2 MB") }
+    var newBookDesc by remember { mutableStateOf("") }
+    var bookToView by remember { mutableStateOf<DigitalBookEntity?>(null) }
+    var bookToEdit by remember { mutableStateOf<DigitalBookEntity?>(null) }
+    var editBookTitle by remember { mutableStateOf("") }
+    var editBookAuthor by remember { mutableStateOf("") }
+    var editBookCategory by remember { mutableStateOf("") }
+    var editBookDesc by remember { mutableStateOf("") }
+    var bookToDelete by remember { mutableStateOf<DigitalBookEntity?>(null) }
 
     var alertMsg by remember { mutableStateOf<String?>(null) }
 
     val standardTimingSlots = listOf(
-        "Morning (09:00 AM - 11:00 AM)",
-        "Afternoon (01:00 PM - 03:00 PM)",
-        "Evening (05:00 PM - 07:00 PM)"
+        "Morning (09:00 - 11:00)",
+        "Mid-Day (11:00 - 13:00)",
+        "Afternoon (14:00 - 16:00)",
+        "Evening (17:00 - 19:00)"
     )
 
     val daysOfWeek = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    val time24hRegex = remember { Regex("^([01]\\d|2[0-3]):([0-5]\\d)$") }
 
     LaunchedEffect(academicSubTab) {
         if (academicSubTab == 6 && currentInsight == null) {
@@ -1936,8 +2199,32 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                                 Text("${item.startTime} - ${item.endTime} • ${item.batchName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("Instructor: ${item.teacherName} • ${item.roomOrLab}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                             }
-                            IconButton(onClick = { scope.launch { repository.deleteTimetable(item.id) } }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
+                            IconButton(
+                                onClick = { timetableToView = item },
+                                modifier = Modifier.size(34.dp).testTag("view_timetable_${item.id}")
+                            ) {
+                                Icon(Icons.Default.Visibility, contentDescription = "View", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(
+                                onClick = {
+                                    timetableToEdit = item
+                                    customScheduleDay = item.dayOfWeek
+                                    customScheduleStartTime = item.startTime
+                                    customScheduleEndTime = item.endTime
+                                    customScheduleSubject = item.subject
+                                    customScheduleBatchName = item.batchName
+                                    customScheduleRoom = item.roomOrLab
+                                    customScheduleTeacherId = item.teacherId
+                                },
+                                modifier = Modifier.size(34.dp).testTag("edit_timetable_${item.id}")
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(
+                                onClick = { timetableToDelete = item },
+                                modifier = Modifier.size(34.dp).testTag("delete_timetable_${item.id}")
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -1945,8 +2232,8 @@ fun AdminAcademicTab(repository: InstituteRepository) {
             }
 
             3 -> {
-                // SCHEDULED EXAMS (50 MCQs) (Requirement 8)
-                val currTime = System.currentTimeMillis()
+                // SCHEDULED EXAMS (50 MCQs) (Requirement 8 & 11)
+                val currTime = ServerTimeAuthority.currentTimeMillis()
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -2038,7 +2325,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                                         OutlinedButton(
                                             onClick = {
                                                 scope.launch {
-                                                    val subs = repository.getSubmissionsForExam(exam.examId)
+                                                    val subs = repository.getSubmissionsForExam(exam.examId).first()
                                                     examSubmissionsForDialog = subs
                                                     selectedExamForSubmissions = exam
                                                 }
@@ -2065,22 +2352,44 @@ fun AdminAcademicTab(repository: InstituteRepository) {
             }
 
             4 -> {
-                // DIGITAL LIBRARY & E-BOOKS (Requirement 9)
+                // DIGITAL LIBRARY & E-BOOKS (Requirement 1 & 7)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Digital Library & Learning Resources", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Text("Curated textbooks, practical manuals & course slides", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Digital Library & Learning Resources", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text("Upload, view, download, rename/edit & manage E-Books and PDFs", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                        Button(
+                            onClick = {
+                                newBookTitle = ""
+                                newBookAuthor = "EduSync Faculty"
+                                newBookSubject = "Computer Applications"
+                                newBookCategory = "E-BOOK"
+                                newBookSize = "4.5 MB"
+                                newBookDesc = ""
+                                showUploadBookDialog = true
+                            },
+                            modifier = Modifier.testTag("admin_upload_library_btn")
+                        ) {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Upload File")
+                        }
                     }
                 }
 
                 Text("Available Resources (${allBooks.size}):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
 
                 allBooks.forEach { book ->
-                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    Card(modifier = Modifier.fillMaxWidth().testTag("library_book_card_${book.id}"), shape = RoundedCornerShape(12.dp)) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(book.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
@@ -2090,15 +2399,54 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                             }
                             Text("Author: ${book.author} • Subject: ${book.subject} • Size: ${book.fileSize}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(book.description, fontSize = 12.sp)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("Downloads: ${book.downloadCount} • Est. Read: ${book.readTimeMinutes} min", fontSize = 11.sp, color = Color.Gray)
-                                FilledTonalButton(
-                                    onClick = { scope.launch { repository.toggleBookDownloaded(book.id, !book.isDownloaded) } },
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Icon(if (book.isDownloaded) Icons.Default.Check else Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (book.isDownloaded) "Downloaded" else "Download")
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Downloads: ${book.downloadCount} • ${book.readTimeMinutes}m read", fontSize = 11.sp, color = Color.Gray)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedButton(
+                                        onClick = { bookToView = book },
+                                        modifier = Modifier.height(32.dp).testTag("view_book_${book.id}"),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("View", fontSize = 11.sp)
+                                    }
+                                    FilledTonalButton(
+                                        onClick = {
+                                            scope.launch {
+                                                repository.toggleBookDownloaded(book.id, true)
+                                                alertMsg = "'${book.title}' downloaded to local storage."
+                                            }
+                                        },
+                                        modifier = Modifier.height(32.dp).testTag("download_book_${book.id}"),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(if (book.isDownloaded) Icons.Default.Check else Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(if (book.isDownloaded) "Saved" else "Download", fontSize = 11.sp)
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            bookToEdit = book
+                                            editBookTitle = book.title
+                                            editBookAuthor = book.author
+                                            editBookCategory = book.category
+                                            editBookDesc = book.description
+                                        },
+                                        modifier = Modifier.size(32.dp).testTag("edit_book_${book.id}")
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Rename / Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                    IconButton(
+                                        onClick = { bookToDelete = book },
+                                        modifier = Modifier.size(32.dp).testTag("delete_book_${book.id}")
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    }
                                 }
                             }
                         }
@@ -2192,7 +2540,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
             }
 
             6 -> {
-                // STUDENT PERFORMANCE INSIGHTS (Requirement 8)
+                // STUDENT PERFORMANCE INSIGHTS (Requirement 6: High contrast in light & dark mode)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -2200,15 +2548,29 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Student Performance Diagnostics", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Text("Select student to generate multi-dimensional academic progress analysis:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Text("Select or enter a Student ID to generate multi-dimensional academic progress analysis:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         OutlinedTextField(
                             value = insightStudentId,
                             onValueChange = { insightStudentId = it },
-                            label = { Text("Student ID (e.g. STU-2026-001)") },
+                            label = { Text("Student ID (e.g. EDU-2026-1001)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            activeStudents.take(3).forEach { st ->
+                                AssistChip(
+                                    onClick = {
+                                        insightStudentId = st.studentId
+                                        scope.launch {
+                                            currentInsight = repository.getStudentPerformanceInsights(st.studentId)
+                                        }
+                                    },
+                                    label = { Text(st.fullName.substringBefore(" "), fontSize = 11.sp) }
+                                )
+                            }
+                        }
 
                         Button(
                             onClick = {
@@ -2229,37 +2591,52 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
-                                    Text(insight.studentName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                    Text("Academic Health: ${insight.academicHealth}", fontWeight = FontWeight.SemiBold, color = if (insight.academicHealth == "EXCELLENT") Color(0xFF15803D) else Color(0xFF2563EB))
+                                    Text(
+                                        insight.studentName,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "Academic Health: ${insight.academicHealth}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (insight.academicHealth == "EXCELLENT") Color(0xFF16A34A) else MaterialTheme.colorScheme.primary
+                                    )
                                 }
                                 Surface(
                                     color = Color(0xFFDCFCE7),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Text("${"%.1f".format(insight.attendancePercentage)}% Att.", fontWeight = FontWeight.Bold, color = Color(0xFF15803D), modifier = Modifier.padding(8.dp))
+                                    Text(
+                                        "${"%.1f".format(insight.attendancePercentage)}% Att.",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF15803D),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
                                 }
                             }
 
                             HorizontalDivider()
-                            Text("Demonstrated Competencies & Strengths:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF15803D))
+                            Text("Demonstrated Competencies & Strengths:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF16A34A))
                             insight.subjectStrengths.forEach { s ->
-                                Text("✓ $s", fontSize = 12.sp)
+                                Text("✓ $s", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                             }
 
-                            Text("Identified Areas for Revision:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFFB45309))
+                            Text("Identified Areas for Revision:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFD97706))
                             insight.subjectWeaknesses.forEach { w ->
-                                Text("• $w", fontSize = 12.sp)
+                                Text("• $w", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                             }
 
                             HorizontalDivider()
-                            Text("Faculty Recommendation & Revision Plan:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                            Text(insight.teacherRecommendations, fontSize = 12.sp, style = MaterialTheme.typography.bodySmall)
+                            Text("Faculty Recommendation & Revision Plan:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                            Text(insight.teacherRecommendations, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -2413,33 +2790,52 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                         singleLine = true
                     )
 
-                    // Timing Selector
-                    Text("Class Timing Slot *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    ExposedDropdownMenuBox(
-                        expanded = timingDropdownExpanded,
-                        onExpandedChange = { timingDropdownExpanded = !timingDropdownExpanded }
+                    // Timing Selector (24-Hour HH:mm Format - Requirement 7)
+                    Text("24-Hour Class Timing (HH:mm) *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedTextField(
-                            value = selectedBatchTiming,
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = timingDropdownExpanded) },
-                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                            value = batchStartTime24h,
+                            onValueChange = {
+                                batchStartTime24h = it
+                                batchTimeError = null
+                                selectedBatchTiming = "${it.trim()} - ${batchEndTime24h.trim()}"
+                            },
+                            label = { Text("Start (24h HH:mm)") },
+                            placeholder = { Text("09:00") },
+                            modifier = Modifier.weight(1f).testTag("batch_start_24h_input"),
+                            singleLine = true
                         )
-                        ExposedDropdownMenu(
-                            expanded = timingDropdownExpanded,
-                            onDismissRequest = { timingDropdownExpanded = false }
-                        ) {
-                            standardTimingSlots.forEach { slot ->
-                                DropdownMenuItem(
-                                    text = { Text(slot) },
-                                    onClick = {
-                                        selectedBatchTiming = slot
-                                        timingDropdownExpanded = false
-                                    }
-                                )
-                            }
+                        OutlinedTextField(
+                            value = batchEndTime24h,
+                            onValueChange = {
+                                batchEndTime24h = it
+                                batchTimeError = null
+                                selectedBatchTiming = "${batchStartTime24h.trim()} - ${it.trim()}"
+                            },
+                            label = { Text("End (24h HH:mm)") },
+                            placeholder = { Text("11:00") },
+                            modifier = Modifier.weight(1f).testTag("batch_end_24h_input"),
+                            singleLine = true
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("09:00" to "11:00", "14:00" to "16:00", "17:00" to "19:00").forEach { (s, e) ->
+                            AssistChip(
+                                onClick = {
+                                    batchStartTime24h = s
+                                    batchEndTime24h = e
+                                    selectedBatchTiming = "$s - $e"
+                                    batchTimeError = null
+                                },
+                                label = { Text("$s-$e", fontSize = 11.sp) }
+                            )
                         }
+                    }
+                    if (batchTimeError != null) {
+                        Text(batchTimeError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     // Course Picker
@@ -2518,14 +2914,21 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                     onClick = {
                         val c = courses.find { it.id == selectedBatchCourseId } ?: courses.firstOrNull()
                         val t = teachers.find { it.teacherId == selectedBatchTeacherId }
+                        val s24 = batchStartTime24h.trim()
+                        val e24 = batchEndTime24h.trim()
+                        if (!time24hRegex.matches(s24) || !time24hRegex.matches(e24)) {
+                            batchTimeError = "Please enter valid 24-hour HH:mm times (e.g. 09:00 and 17:00)."
+                            return@Button
+                        }
                         if (newBatchName.isNotBlank() && c != null) {
                             val batchId = "BATCH_${System.currentTimeMillis() % 100000}"
+                            val formattedTiming = "$s24 - $e24"
                             val batch = BatchEntity(
                                 id = batchId,
                                 name = newBatchName.trim(),
                                 courseId = c.id,
                                 courseName = c.name,
-                                timing = selectedBatchTiming,
+                                timing = formattedTiming,
                                 assignedTeacherId = t?.teacherId,
                                 assignedTeacherName = t?.fullName,
                                 batchAdminTeacherId = if (isNewBatchAdmin) t?.teacherId else null,
@@ -2542,7 +2945,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                                     )
                                 }
                                 showAddBatchDialog = false
-                                alertMsg = "Batch '${batch.name}' successfully created and scheduled."
+                                alertMsg = "Batch '${batch.name}' ($formattedTiming) successfully created and scheduled."
                             }
                         }
                     },
@@ -2919,7 +3322,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
         )
     }
 
-    // Edit Batch Dialog (Requirement 4)
+    // Edit Batch Dialog (Requirement 4 & 7: 24-Hour HH:mm Format)
     batchToEdit?.let { batch ->
         AlertDialog(
             onDismissRequest = { batchToEdit = null },
@@ -2936,10 +3339,19 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                     OutlinedTextField(
                         value = editBatchTiming,
                         onValueChange = { editBatchTiming = it },
-                        label = { Text("Timing Slot") },
+                        label = { Text("Timing (24-Hour HH:mm - HH:mm)") },
+                        placeholder = { Text("e.g. 09:00 - 11:00 or 14:00 - 16:00") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("09:00 - 11:00", "14:00 - 16:00", "17:00 - 19:00").forEach { preset ->
+                            AssistChip(
+                                onClick = { editBatchTiming = preset },
+                                label = { Text(preset, fontSize = 11.sp) }
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -3223,7 +3635,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                         OutlinedTextField(
                             value = newExamStartHoursFromNow,
                             onValueChange = { newExamStartHoursFromNow = it },
-                            label = { Text("Starts in (Hours, 1-24)") },
+                            label = { Text("Starts in (Hours, 0=Live)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
                             singleLine = true
@@ -3270,27 +3682,25 @@ fun AdminAcademicTab(repository: InstituteRepository) {
             confirmButton = {
                 Button(
                     onClick = {
-                        val duration = newExamDurationMinutes.toIntOrNull() ?: 60
-                        val hours = (newExamStartHoursFromNow.toDoubleOrNull() ?: 1.0).coerceIn(0.1, 24.0)
-                        val startMs = System.currentTimeMillis() + (hours * 3600 * 1000).toLong()
-                        val endMs = startMs + (duration * 60 * 1000)
+                        val duration = (newExamDurationMinutes.toIntOrNull() ?: 60).coerceAtLeast(5)
+                        val hours = (newExamStartHoursFromNow.toDoubleOrNull() ?: 1.0).coerceIn(0.0, 72.0)
+                        val now = ServerTimeAuthority.currentTimeMillis()
+                        val startMs = if (hours <= 0.0) now - 10_000L else now + (hours * 3600 * 1000).toLong()
 
                         if (newExamTitle.isNotBlank() && newExamSelectedStudentIds.isNotEmpty()) {
                             scope.launch {
                                 val exam = ScheduledExamEntity(
-                                    examId = "EXAM-${System.currentTimeMillis() % 100000}",
+                                    examId = "EXAM-${now % 100000}",
                                     title = newExamTitle.trim(),
-                                    courseId = selectedCourse?.id ?: "CRS_GENERAL",
-                                    courseName = selectedCourse?.name ?: "General Computer Certification",
+                                    courseId = selectedCourse?.id ?: "CRS_ADCA",
+                                    courseName = selectedCourse?.name ?: "Advance Diploma in Computer Applications (ADCA)",
                                     scheduledStartTime = startMs,
-                                    scheduledEndTime = endMs,
                                     durationMinutes = duration,
-                                    allowedStudentIdsJson = ExamQuestionBank.serializeAllowedStudentIds(newExamSelectedStudentIds.toList()),
-                                    questionsJson = ExamQuestionBank.serializeQuestions(newExam50Questions),
                                     totalQuestions = 50,
-                                    totalMarks = 100.0,
-                                    passingMarks = 40.0,
-                                    isPublished = true
+                                    passingMarks = 20,
+                                    questionsJson = ExamQuestionBank.serializeQuestions(newExam50Questions),
+                                    assignedStudentIds = ExamQuestionBank.serializeAllowedStudentIds(newExamSelectedStudentIds.toList()),
+                                    status = if (hours <= 0.0) "LIVE" else "SCHEDULED"
                                 )
                                 repository.saveScheduledExam(exam)
                                 showCreateExamDialog = false
@@ -3346,7 +3756,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            "Score: ${sub.score.toInt()}/100 (${"%.1f".format(sub.percentage)}%)",
+                                            "Score: ${sub.score ?: 0}/100 (${"%.1f".format(sub.percentage)}%)",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp,
                                             color = if (sub.isPassed) Color(0xFF15803D) else Color(0xFFDC2626)
@@ -3358,7 +3768,7 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                                             color = if (sub.isPassed) Color(0xFF15803D) else Color(0xFFDC2626)
                                         )
                                     }
-                                    if (sub.isAutoSubmitted) {
+                                    if (sub.autoSubmitted) {
                                         Text("(Auto-submitted on session timeout)", fontSize = 10.sp, color = Color.Gray)
                                     }
                                 }
@@ -3390,6 +3800,322 @@ fun AdminAcademicTab(repository: InstituteRepository) {
                 ) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { examToDelete = null }) { Text("Cancel") } }
+        )
+    }
+
+    // View Timetable Entry Dialog (Requirement 5)
+    timetableToView?.let { slot ->
+        AlertDialog(
+            onDismissRequest = { timetableToView = null },
+            title = { Text("Class Schedule Details", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Subject: ${slot.subject}", fontWeight = FontWeight.Bold)
+                    Text("Day: ${slot.dayOfWeek}")
+                    Text("Time: ${slot.startTime} - ${slot.endTime}")
+                    Text("Batch: ${slot.batchName}")
+                    Text("Instructor: ${slot.teacherName} (${slot.teacherId})")
+                    Text("Room / Lab: ${slot.roomOrLab}")
+                }
+            },
+            confirmButton = { TextButton(onClick = { timetableToView = null }) { Text("Close") } }
+        )
+    }
+
+    // Edit Timetable Entry Dialog (Requirement 5)
+    timetableToEdit?.let { slot ->
+        AlertDialog(
+            onDismissRequest = { timetableToEdit = null },
+            title = { Text("Edit Timetable Slot", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customScheduleDay,
+                        onValueChange = { customScheduleDay = it },
+                        label = { Text("Day of Week") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = customScheduleStartTime,
+                            onValueChange = { customScheduleStartTime = it },
+                            label = { Text("Start Time") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = customScheduleEndTime,
+                            onValueChange = { customScheduleEndTime = it },
+                            label = { Text("End Time") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                    OutlinedTextField(
+                        value = customScheduleSubject,
+                        onValueChange = { customScheduleSubject = it },
+                        label = { Text("Subject") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = customScheduleBatchName,
+                        onValueChange = { customScheduleBatchName = it },
+                        label = { Text("Batch Name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = customScheduleRoom,
+                        onValueChange = { customScheduleRoom = it },
+                        label = { Text("Room / Lab") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            repository.updateTimetable(
+                                slot.copy(
+                                    dayOfWeek = customScheduleDay.trim(),
+                                    startTime = customScheduleStartTime.trim(),
+                                    endTime = customScheduleEndTime.trim(),
+                                    subject = customScheduleSubject.trim(),
+                                    batchName = customScheduleBatchName.trim(),
+                                    roomOrLab = customScheduleRoom.trim()
+                                )
+                            )
+                            timetableToEdit = null
+                            alertMsg = "Timetable slot updated and synced to Student & Teacher portals."
+                        }
+                    }
+                ) { Text("Save Changes") }
+            },
+            dismissButton = { TextButton(onClick = { timetableToEdit = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Delete Timetable Confirmation Dialog (Requirement 5)
+    timetableToDelete?.let { slot ->
+        AlertDialog(
+            onDismissRequest = { timetableToDelete = null },
+            title = { Text("Delete Timetable Slot?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Are you sure you want to delete '${slot.subject}' (${slot.dayOfWeek}, ${slot.startTime} - ${slot.endTime}) for ${slot.batchName}?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteTimetable(slot.id)
+                            timetableToDelete = null
+                            alertMsg = "Timetable entry deleted."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { timetableToDelete = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Upload Digital Library File / E-Book Dialog (Requirement 1 & 7)
+    if (showUploadBookDialog) {
+        AlertDialog(
+            onDismissRequest = { showUploadBookDialog = false },
+            title = { Text("Upload Library File / E-Book", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newBookTitle,
+                        onValueChange = { newBookTitle = it },
+                        label = { Text("File / E-Book Title *") },
+                        placeholder = { Text("e.g. Complete Python & SQL Lab Guide.pdf") },
+                        modifier = Modifier.fillMaxWidth().testTag("upload_book_title_input"),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = newBookAuthor,
+                        onValueChange = { newBookAuthor = it },
+                        label = { Text("Author / Publisher") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("E-BOOK", "PDF MANUAL", "VIDEO LECTURE", "SYLLABUS").forEach { cat ->
+                            FilterChip(
+                                selected = newBookCategory == cat,
+                                onClick = {
+                                    newBookCategory = cat
+                                    if (cat == "VIDEO LECTURE") {
+                                        newBookSize = "45 Mins • HD"
+                                    } else if (newBookSize.contains("Mins")) {
+                                        newBookSize = "4.5 MB"
+                                    }
+                                },
+                                label = { Text(cat, fontSize = 10.sp) }
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = newBookDesc,
+                        onValueChange = { newBookDesc = it },
+                        label = { Text("Description & Chapter Summary") },
+                        modifier = Modifier.fillMaxWidth().height(90.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newBookTitle.isNotBlank()) {
+                            scope.launch {
+                                val descText = newBookDesc.trim().ifBlank { "Official EduSync Academy digital study resource." }
+                                repository.addBook(
+                                    DigitalBookEntity(
+                                        title = newBookTitle.trim(),
+                                        author = newBookAuthor.trim().ifBlank { "EduSync Faculty" },
+                                        courseId = "CRS_ADCA",
+                                        subject = newBookSubject.trim(),
+                                        category = newBookCategory,
+                                        fileSize = newBookSize,
+                                        description = descText,
+                                        readTimeMinutes = 45,
+                                        isDownloaded = true,
+                                        downloadCount = 1,
+                                        contentSummary = descText
+                                    )
+                                )
+                                repository.addStudyMaterial(
+                                    StudyMaterialEntity(
+                                        courseId = "CRS_ADCA",
+                                        title = newBookTitle.trim(),
+                                        description = descText,
+                                        type = if (newBookCategory == "VIDEO LECTURE") "VIDEO_CLASS" else "PDF_NOTES",
+                                        contentUrl = "https://edusync.academy/library/${newBookTitle.trim().replace(" ", "_")}",
+                                        fileSize = newBookSize
+                                    )
+                                )
+                                showUploadBookDialog = false
+                                alertMsg = "'${newBookTitle.trim()}' uploaded to Digital Library & Student Learning portal."
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("confirm_upload_book_btn")
+                ) { Text("Upload & Publish") }
+            },
+            dismissButton = { TextButton(onClick = { showUploadBookDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    // View Library Book Dialog (Requirement 7)
+    bookToView?.let { b ->
+        AlertDialog(
+            onDismissRequest = { bookToView = null },
+            title = { Text(b.title, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Code: ${b.bookCode} • Category: ${b.category}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Text("Author: ${b.author} • Subject: ${b.subject} • Size: ${b.fileSize}", fontSize = 12.sp)
+                    HorizontalDivider()
+                    Text(b.description, style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = { TextButton(onClick = { bookToView = null }) { Text("Close Viewer") } }
+        )
+    }
+
+    // Rename / Edit Library Book Dialog (Requirement 7)
+    bookToEdit?.let { b ->
+        AlertDialog(
+            onDismissRequest = { bookToEdit = null },
+            title = { Text("Rename / Edit Library File", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = editBookTitle,
+                        onValueChange = { editBookTitle = it },
+                        label = { Text("File / Book Title *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = editBookAuthor,
+                        onValueChange = { editBookAuthor = it },
+                        label = { Text("Author") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = editBookCategory,
+                        onValueChange = { editBookCategory = it },
+                        label = { Text("Category") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = editBookDesc,
+                        onValueChange = { editBookDesc = it },
+                        label = { Text("Description") },
+                        modifier = Modifier.fillMaxWidth().height(90.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editBookTitle.isNotBlank()) {
+                            scope.launch {
+                                repository.updateBook(
+                                    b.copy(
+                                        title = editBookTitle.trim(),
+                                        author = editBookAuthor.trim(),
+                                        category = editBookCategory.trim(),
+                                        description = editBookDesc.trim()
+                                    )
+                                )
+                                bookToEdit = null
+                                alertMsg = "Library file updated."
+                            }
+                        }
+                    }
+                ) { Text("Save Changes") }
+            },
+            dismissButton = { TextButton(onClick = { bookToEdit = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Delete Library Book Confirmation Dialog (Requirement 7)
+    bookToDelete?.let { b ->
+        AlertDialog(
+            onDismissRequest = { bookToDelete = null },
+            title = { Text("Delete Library Resource?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Are you sure you want to permanently delete '${b.title}' (${b.bookCode}) from the Digital Library?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteBook(b.id)
+                            bookToDelete = null
+                            alertMsg = "Resource '${b.title}' deleted from library."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete Permanently") }
+            },
+            dismissButton = { TextButton(onClick = { bookToDelete = null }) { Text("Cancel") } }
         )
     }
 

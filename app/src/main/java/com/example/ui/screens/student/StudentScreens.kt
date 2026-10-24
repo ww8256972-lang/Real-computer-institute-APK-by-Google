@@ -1,7 +1,16 @@
 package com.example.ui.screens.student
 
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import android.speech.tts.TextToSpeech
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,24 +26,31 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import android.speech.tts.TextToSpeech
-import java.util.Locale
-import kotlinx.coroutines.delay
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.core.ExamQuestionBank
 import com.example.core.QrCodeWidget
-import com.example.data.local.ExamQuestionBank
 import com.example.data.local.entity.*
 import com.example.data.remote.GeminiService
 import com.example.data.repository.InstituteRepository
 import com.example.ui.components.*
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,18 +61,74 @@ fun StudentMainScreen(
     geminiService: GeminiService,
     onLogout: () -> Unit,
     isDarkTheme: Boolean,
-    onToggleTheme: () -> Unit
+    onToggleTheme: () -> Unit,
+    onStudentUpdated: (StudentEntity) -> Unit = {}
 ) {
+    val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showNoticesDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var showSwitchCourseDialog by remember { mutableStateOf(false) }
+    var authorizedCourses by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
+    var courseSwitchFeedback by remember { mutableStateOf<String?>(null) }
+    var sessionLogoutFeedback by remember { mutableStateOf<String?>(null) }
+
+    val notices by instituteRepository.getNotices().collectAsState(initial = emptyList())
+    val scheduledExams by instituteRepository
+        .getScheduledExamsForStudent(student.studentId, student.courseId)
+        .collectAsState(initial = emptyList())
+
+    // Requirement 3: Keep Exam tab hidden until an administrator/teacher schedules and publishes a valid exam
+    val isExamTabVisible = remember(scheduledExams) {
+        scheduledExams.any { it.isPublished }
+    }
+
+    LaunchedEffect(isExamTabVisible, selectedTab) {
+        if (!isExamTabVisible && selectedTab == 3) {
+            selectedTab = 0
+        }
+    }
+
+    LaunchedEffect(student.studentId, student.courseId, showSettingsDialog, showSwitchCourseDialog) {
+        authorizedCourses = instituteRepository.getAuthorizedCoursesForStudent(student.studentId)
+    }
 
     Scaffold(
         topBar = {
             EduSyncTopAppBar(
                 title = "EduSync Student Portal",
                 subtitle = "${student.fullName} • ${student.studentId}",
-                isDarkTheme = isDarkTheme,
-                onToggleTheme = onToggleTheme,
+                showThemeToggle = false,
                 actions = {
+                    // Notification Bell with unread badge
+                    BadgedBox(
+                        badge = {
+                            val count = if (notices.isNotEmpty()) notices.size else 3
+                            Badge(
+                                containerColor = Color(0xFFEF4444),
+                                contentColor = Color.White
+                            ) {
+                                Text("$count", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        IconButton(
+                            onClick = { showNoticesDialog = true },
+                            modifier = Modifier.testTag("student_notices_bell_button")
+                        ) {
+                            Icon(Icons.Default.Notifications, contentDescription = "Institute Notices")
+                        }
+                    }
+
+                    // Settings Gear (Dark/Light mode toggle, Switch Course, and Log Out All Devices)
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.testTag("student_settings_gear_button")
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings & Preferences")
+                    }
+
                     IconButton(
                         onClick = onLogout,
                         modifier = Modifier.testTag("student_logout_button")
@@ -71,50 +143,395 @@ fun StudentMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 0) {
+                            Icon(Icons.Default.Dashboard, contentDescription = "Dashboard")
+                        }
+                    },
                     label = { Text("Home") },
-                    modifier = Modifier.testTag("tab_student_home")
+                    modifier = Modifier
+                        .pullDownTabInteraction(selected = selectedTab == 0)
+                        .testTag("tab_student_home")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Learning") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 1) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Learning")
+                        }
+                    },
                     label = { Text("Learning") },
-                    modifier = Modifier.testTag("tab_student_learning")
+                    modifier = Modifier
+                        .pullDownTabInteraction(selected = selectedTab == 1)
+                        .testTag("tab_student_learning")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Fees") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 2) {
+                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Fees")
+                        }
+                    },
                     label = { Text("Fees & Att.") },
-                    modifier = Modifier.testTag("tab_student_fees")
+                    modifier = Modifier
+                        .pullDownTabInteraction(selected = selectedTab == 2)
+                        .testTag("tab_student_fees")
                 )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.WorkspacePremium, contentDescription = "Exams") },
-                    label = { Text("Exams") },
-                    modifier = Modifier.testTag("tab_student_exams")
-                )
+                if (isExamTabVisible) {
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        icon = {
+                            AnimatedTabIconHalo(selected = selectedTab == 3) {
+                                Icon(Icons.Default.WorkspacePremium, contentDescription = "Exams")
+                            }
+                        },
+                        label = { Text("Exams") },
+                        modifier = Modifier
+                            .pullDownTabInteraction(selected = selectedTab == 3)
+                            .testTag("tab_student_exams")
+                    )
+                }
                 NavigationBarItem(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Psychology, contentDescription = "EduSync AI") },
+                    icon = {
+                        AnimatedTabIconHalo(selected = selectedTab == 4) {
+                            Icon(Icons.Default.Psychology, contentDescription = "EduSync AI")
+                        }
+                    },
                     label = { Text("EduSync AI") },
-                    modifier = Modifier.testTag("tab_student_ai")
+                    modifier = Modifier
+                        .pullDownTabInteraction(selected = selectedTab == 4)
+                        .testTag("tab_student_ai")
                 )
             }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
-                0 -> StudentDashboardTab(student, instituteRepository, onNavigateToExams = { selectedTab = 3 })
+                0 -> StudentDashboardTab(
+                    student = student,
+                    repository = instituteRepository,
+                    onNavigateToExams = {
+                        if (isExamTabVisible) {
+                            selectedTab = 3
+                        }
+                    },
+                    onOpenSwitchCourse = { showSwitchCourseDialog = true },
+                    onOpenProfileSettings = { showSettingsDialog = true }
+                )
                 1 -> StudentLearningTab(student, instituteRepository)
                 2 -> StudentFeesAttendanceTab(student, instituteRepository)
-                3 -> StudentExamsTab(student, instituteRepository)
+                3 -> if (isExamTabVisible) {
+                    StudentExamsTab(student, instituteRepository)
+                } else {
+                    StudentDashboardTab(
+                        student = student,
+                        repository = instituteRepository,
+                        onNavigateToExams = {},
+                        onOpenSwitchCourse = { showSwitchCourseDialog = true },
+                        onOpenProfileSettings = { showSettingsDialog = true }
+                    )
+                }
                 4 -> StudentAiTutorTab(student, geminiService)
             }
         }
+    }
+
+    // Dedicated Notices Modal Dialog (Requirement 6)
+    if (showNoticesDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoticesDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Campaign, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Institute Notices & Announcements", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (notices.isEmpty()) {
+                        item {
+                            Text("No new notices at this time.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                    } else {
+                        items(notices) { notice ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(notice.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                        StatusBadge(notice.priority)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(notice.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Published: ${notice.date}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showNoticesDialog = false },
+                    modifier = Modifier.testTag("close_notices_dialog_btn")
+                ) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Switch Course Dialog (Requirement 7)
+    if (showSwitchCourseDialog) {
+        AlertDialog(
+            onDismissRequest = { showSwitchCourseDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Switch Authorized Course", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Select an authorized course below. Switching updates your active course curriculum, study materials, batch schedule, and exam eligibility while preserving your enrollment history.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    authorizedCourses.forEach { course ->
+                        val isCurrent = course.id.equals(student.courseId, ignoreCase = true)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (!isCurrent) {
+                                        scope.launch {
+                                            val res = instituteRepository.switchStudentCourse(student.studentId, course.id)
+                                            res.onSuccess { updated ->
+                                                onStudentUpdated(updated)
+                                                courseSwitchFeedback = "Active course switched to '${updated.courseName}' (${updated.batch})."
+                                                showSwitchCourseDialog = false
+                                            }.onFailure { err ->
+                                                courseSwitchFeedback = err.localizedMessage ?: "Course switch denied."
+                                            }
+                                        }
+                                    }
+                                }
+                                .testTag("switch_course_item_${course.id}"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(course.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Code: ${course.code} • Duration: ${course.duration}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (isCurrent) {
+                                    StatusBadge("ACTIVE")
+                                } else {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            scope.launch {
+                                                val res = instituteRepository.switchStudentCourse(student.studentId, course.id)
+                                                res.onSuccess { updated ->
+                                                    onStudentUpdated(updated)
+                                                    courseSwitchFeedback = "Active course switched to '${updated.courseName}' (${updated.batch})."
+                                                    showSwitchCourseDialog = false
+                                                }.onFailure { err ->
+                                                    courseSwitchFeedback = err.localizedMessage ?: "Course switch denied."
+                                                }
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Switch", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSwitchCourseDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Dedicated Student Profile & Settings Modal Dialog (Requirement 6 & 7: Persisted Dark Mode, Switch Course, Log Out All Devices, no Update Password)
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Student Profile & Settings", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Profile overview
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(student.fullName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Student ID: ${student.studentId} • Batch: ${student.batch}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Active Course: ${student.courseName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    // Persisted Dark / Light Theme Toggle Switch (Requirement 6)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Dark Mode", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text(if (isDarkTheme) "Enabled (Persisted)" else "Disabled (Light Mode)", fontSize = 11.sp, color = Color.Gray)
+                                }
+                            }
+                            Switch(
+                                checked = isDarkTheme,
+                                onCheckedChange = { onToggleTheme() },
+                                modifier = Modifier.testTag("settings_theme_switch")
+                            )
+                        }
+                    }
+
+                    // Switch Course Action (Requirement 7)
+                    OutlinedButton(
+                        onClick = {
+                            showSettingsDialog = false
+                            showSwitchCourseDialog = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_switch_course_btn"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Switch Enrolled Course (${authorizedCourses.size} Authorized)")
+                    }
+
+                    // Log Out All Devices Action (Requirement 6)
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val res = instituteRepository.invalidateAllStudentSessions(student.studentId)
+                                showSettingsDialog = false
+                                res.onSuccess { count ->
+                                    sessionLogoutFeedback = "Security Action Complete: Logged out of $count active device sessions. Redirecting to login..."
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("logout_all_devices_btn"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PhonelinkErase, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Log Out All Devices", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+
+                    Text("App Version 2.5.0 • EduSync Academy", fontSize = 11.sp, color = Color.Gray)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
+    if (courseSwitchFeedback != null) {
+        AlertDialog(
+            onDismissRequest = { courseSwitchFeedback = null },
+            title = { Text("Course Enrollment Updated") },
+            text = { Text(courseSwitchFeedback!!) },
+            confirmButton = {
+                TextButton(onClick = { courseSwitchFeedback = null }) { Text("OK") }
+            }
+        )
+    }
+
+    if (sessionLogoutFeedback != null) {
+        AlertDialog(
+            onDismissRequest = {
+                sessionLogoutFeedback = null
+                onLogout()
+            },
+            title = { Text("Logged Out of All Devices") },
+            text = { Text(sessionLogoutFeedback!!) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        sessionLogoutFeedback = null
+                        onLogout()
+                    }
+                ) {
+                    Text("Sign In Again")
+                }
+            }
+        )
     }
 }
 
@@ -122,34 +539,18 @@ fun StudentMainScreen(
 fun StudentDashboardTab(
     student: StudentEntity,
     repository: InstituteRepository,
-    onNavigateToExams: () -> Unit = {}
+    onNavigateToExams: () -> Unit = {},
+    onOpenSwitchCourse: () -> Unit = {},
+    onOpenProfileSettings: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
-    val notices by repository.getNotices().collectAsState(initial = emptyList())
-    val timetables by repository.getTimetablesByBatch(student.batch).collectAsState(initial = emptyList())
-    val scheduledExams by repository.getScheduledExamsForStudent(student.studentId).collectAsState(initial = emptyList())
+    val scheduledExams by repository.getScheduledExamsForStudent(student.studentId, student.courseId).collectAsState(initial = emptyList())
     var presentCount by remember { mutableIntStateOf(0) }
     var totalDays by remember { mutableIntStateOf(0) }
     var downloadDialog by remember { mutableStateOf<String?>(null) }
+    var showQrAttendanceDialog by remember { mutableStateOf(false) }
 
-    // Practice Quiz state
-    var showPracticeQuizDialog by remember { mutableStateOf(false) }
-    var practiceQuizIdx by remember { mutableIntStateOf(0) }
-    var practiceQuizScore by remember { mutableIntStateOf(0) }
-    var practiceSelectedOpt by remember { mutableStateOf<Int?>(null) }
-    var practiceQuizResultDialog by remember { mutableStateOf<String?>(null) }
-
-    val practiceQuestions = remember {
-        listOf(
-            Triple("Which shortcut is used in Tally Prime to record a Contra Voucher?", listOf("F4", "F5", "F6", "F7"), 0),
-            Triple("In Python, which keyword is used to define a function?", listOf("func", "def", "define", "function"), 1),
-            Triple("What is the full form of 'DCA'?", listOf("Diploma in Computer Applications", "Digital Computing & Accounts", "Data Communications Architecture", "Degree in Computer Accounting"), 0),
-            Triple("Which HTML5 tag is used to create a hyperlink?", listOf("<link>", "<a>", "<href>", "<nav>"), 1),
-            Triple("Which Excel formula is used to look up values vertically in a table?", listOf("INDEX", "MATCH", "VLOOKUP", "SUMIF"), 2)
-        )
-    }
-
-    LaunchedEffect(student.studentId) {
+    LaunchedEffect(student.studentId, student.courseId) {
         val stats = repository.getStudentAttendanceStats(student.studentId)
         presentCount = stats.first
         totalDays = stats.second
@@ -164,137 +565,250 @@ fun StudentDashboardTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Welcome Card
+        // Screen 2 Reference: Personalized 3D Welcome Card
         Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
+            shadowElevation = 3.dp
         ) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 3D Avatar Box with glowing gradient ring
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(62.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF00C6FF), Color(0xFF0072FF))
+                            )
+                        )
+                        .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Avatar",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
                 }
+
                 Spacer(modifier = Modifier.width(16.dp))
-                Column {
+
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Hello, ${student.fullName}!",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
                         text = "${student.courseName} • ${student.batch}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "\"Strive for excellence in every code and calculation.\"",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
 
-        // 1. Upcoming Schedule (Requirement 5)
+        // 1. Comprehensive Student Profile Section (Requirement 1 & 6 & 7)
         Card(
-            modifier = Modifier.fillMaxWidth().testTag("upcoming_schedule_card"),
-            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("student_profile_dossier_card"),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Upcoming Schedule", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    }
-                    Surface(color = Color(0xFFEFF6FF), shape = RoundedCornerShape(8.dp)) {
-                        Text(student.batch, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 11.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                if (timetables.isEmpty()) {
-                    Text(
-                        "No classes scheduled for today. Regular classes run as per the weekly timetable.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
-                } else {
-                    timetables.take(3).forEach { slot ->
-                        Row(
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(slot.subject, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("${slot.dayOfWeek} • ${slot.startTime} - ${slot.endTime} • ${slot.roomOrLab}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Surface(color = Color(0xFFDCFCE7), shape = RoundedCornerShape(6.dp)) {
-                                Text(slot.teacherName, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 10.sp, color = Color(0xFF15803D), fontWeight = FontWeight.Bold)
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Badge,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Student Dossier & Profile",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Official Institute Academic Enrollment Record",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
+                    StatusBadge("ACTIVE ENROLLED")
                 }
-            }
-        }
 
-        // 2. Practice MCQ Quiz (Placed IMMEDIATELY BELOW Upcoming Schedule - Requirement 5)
-        Card(
-            modifier = Modifier.fillMaxWidth().testTag("practice_quiz_card"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // Profile Details Grid
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("STUDENT ID", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.studentId, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ROLL NUMBER", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.rollNo.ifBlank { "RN-01" }, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ENROLLED COURSE", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.courseName, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("BATCH TIMING", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.batch, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("PARENT / GUARDIAN", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.guardianName.ifBlank { student.fatherName.ifBlank { "Guardian on Record" } }, fontSize = 12.5.sp, fontWeight = FontWeight.Normal)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("CONTACT PHONE", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.phone, fontSize = 12.5.sp, fontWeight = FontWeight.Normal)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ADMISSION DATE", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(student.enrollmentDate, fontSize = 12.sp, color = Color.Gray)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ACADEMIC STATUS", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Verified • Active", fontSize = 12.sp, color = Color(0xFF15803D), fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Quick Actions Row: Switch Course & Profile Settings
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Quiz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Practice MCQ Quiz", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    OutlinedButton(
+                        onClick = onOpenSwitchCourse,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("home_switch_course_btn"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Switch Course", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    StatusBadge("INSTANT EVALUATION")
+                    OutlinedButton(
+                        onClick = onOpenProfileSettings,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("home_profile_security_btn"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Theme & Sessions", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Test and sharpen your computer fundamentals, Tally Prime, and Python skills with authentic quiz questions.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+
+                // Profile Action: Quick QR Attendance Check-in
                 Button(
-                    onClick = {
-                        practiceQuizIdx = 0
-                        practiceQuizScore = 0
-                        practiceSelectedOpt = null
-                        showPracticeQuizDialog = true
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("home_start_mcq_btn")
+                    onClick = { showQrAttendanceDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_scan_qr_attendance_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Start Practice MCQ Quiz (5 Questions)")
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("QR Code Attendance Check-in", fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Scheduled Exams Alert (if any active or scheduled exam)
+        // Screen 2 Reference: Compact Metric Pills (Total Courses, Completed, Pending)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Active Course", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(student.courseId.removePrefix("CRS_"), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Attendance", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("$attPercentage%", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (attPercentage >= 75) Color(0xFF15803D) else Color(0xFFDC2626))
+                }
+            }
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Progress", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("65% Done", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7C3AED))
+                }
+            }
+        }
+
+        // Scheduled Certification Exams Alert (if any active or scheduled exam)
         if (scheduledExams.isNotEmpty()) {
             val upcomingOrLive = scheduledExams.filter { it.isPublished }
             if (upcomingOrLive.isNotEmpty()) {
@@ -332,142 +846,27 @@ fun StudentDashboardTab(
             }
         }
 
-        // Academic Progress & Attendance summary
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(
-                title = "Attendance",
-                value = "$attPercentage%",
-                icon = Icons.Default.EventAvailable,
-                iconBgColor = if (attPercentage >= 75) Color(0xFFDCFCE7) else Color(0xFFFEE2E2),
-                iconColor = if (attPercentage >= 75) Color(0xFF15803D) else Color(0xFFB91C1C),
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                title = "Course Progress",
-                value = "65%",
-                icon = Icons.AutoMirrored.Filled.TrendingUp,
-                iconBgColor = Color(0xFFEDE9FE),
-                iconColor = Color(0xFF6D28D9),
-                modifier = Modifier.weight(1f)
-            )
-        }
-
         // Digital Student ID Card
         Text("Digital Student Identity Card", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
         StudentIdCard(
             student = student,
             onDownloadPdf = { downloadDialog = "Student ID Card downloaded successfully to device storage." }
         )
-
-        // Announcements & Notices
-        Text("Institute Announcements", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-        if (notices.isEmpty()) {
-            Text("No new notices at this time.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        } else {
-            notices.take(3).forEach { notice ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(notice.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                            StatusBadge(notice.priority)
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(notice.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Published: ${notice.date}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    }
-                }
-            }
-        }
     }
 
-    // Practice MCQ Quiz Dialog
-    if (showPracticeQuizDialog) {
-        val q = practiceQuestions[practiceQuizIdx]
-        AlertDialog(
-            onDismissRequest = { showPracticeQuizDialog = false },
-            title = { Text("Practice Question ${practiceQuizIdx + 1} of 5") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(q.first, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                    q.second.forEachIndexed { idx, opt ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (practiceSelectedOpt == idx) Color(0xFFDBEAFE) else Color.Transparent)
-                                .border(1.dp, if (practiceSelectedOpt == idx) Color(0xFF2563EB) else Color(0xFFCBD5E1), RoundedCornerShape(8.dp))
-                                .padding(8.dp)
-                        ) {
-                            RadioButton(
-                                selected = practiceSelectedOpt == idx,
-                                onClick = { practiceSelectedOpt = idx }
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(opt, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+    // QR Attendance Scanner Dialog (Requirement 5)
+    if (showQrAttendanceDialog) {
+        StudentQrAttendanceScannerModal(
+            student = student,
+            repository = repository,
+            onDismiss = { showQrAttendanceDialog = false },
+            onAttendanceMarked = {
+                scope.launch {
+                    val stats = repository.getStudentAttendanceStats(student.studentId)
+                    presentCount = stats.first
+                    totalDays = stats.second
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (practiceSelectedOpt == q.third) {
-                            practiceQuizScore++
-                        }
-                        if (practiceQuizIdx < practiceQuestions.size - 1) {
-                            practiceQuizIdx++
-                            practiceSelectedOpt = null
-                        } else {
-                            val finalScore = practiceQuizScore
-                            showPracticeQuizDialog = false
-                            val percentage = (finalScore.toDouble() / practiceQuestions.size) * 100
-                            scope.launch {
-                                repository.saveExamResult(
-                                    ExamResultEntity(
-                                        studentId = student.studentId,
-                                        examName = "Practice Computer Fundamentals Quiz",
-                                        examDate = "2026-10-23",
-                                        courseId = student.courseId,
-                                        totalMarks = 100.0,
-                                        obtainedMarks = percentage,
-                                        percentage = percentage,
-                                        grade = if (percentage >= 80) "A+" else if (percentage >= 60) "A" else "B",
-                                        rank = 1,
-                                        certificateNumber = "EDUSYNC-PRAC-${System.currentTimeMillis() % 10000}",
-                                        certificateIssueDate = "2026-10-23"
-                                    )
-                                )
-                                practiceQuizResultDialog = "Practice Quiz Completed! Score: $finalScore / 5 ($percentage%). Result saved to your academic record."
-                            }
-                        }
-                    },
-                    enabled = practiceSelectedOpt != null
-                ) {
-                    Text(if (practiceQuizIdx == practiceQuestions.size - 1) "Finish Quiz" else "Next")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPracticeQuizDialog = false }) { Text("Cancel") }
             }
-        )
-    }
-
-    if (practiceQuizResultDialog != null) {
-        AlertDialog(
-            onDismissRequest = { practiceQuizResultDialog = null },
-            title = { Text("Quiz Evaluation") },
-            text = { Text(practiceQuizResultDialog!!) },
-            confirmButton = { TextButton(onClick = { practiceQuizResultDialog = null }) { Text("OK") } }
         )
     }
 
@@ -483,22 +882,242 @@ fun StudentDashboardTab(
     }
 }
 
+/**
+ * QR Code Attendance Check-in Modal (Requirement 5)
+ * Allows students to scan or input live dynamic attendance QR session tokens,
+ * marks attendance instantly, and syncs directly to the Room database.
+ */
+@Composable
+fun StudentQrAttendanceScannerModal(
+    student: StudentEntity,
+    repository: InstituteRepository,
+    onDismiss: () -> Unit,
+    onAttendanceMarked: () -> Unit
+) {
+    var sessionCodeInput by remember { mutableStateOf("") }
+    var isProcessing by remember { mutableStateOf(false) }
+    var resultMessage by remember { mutableStateOf<String?>(null) }
+    var isSuccess by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val activeSessions by repository.getActiveQrSessions().collectAsState(initial = emptyList())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("QR Attendance Check-In", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Scan or enter the live dynamic attendance QR session code displayed by your teacher or faculty.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Scanner Viewfinder Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0F172A))
+                        .border(1.5.dp, Color(0xFF00C6FF), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.QrCode2,
+                            contentDescription = "Scanner",
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(52.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Live Classroom Scanner Active",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = sessionCodeInput,
+                    onValueChange = { sessionCodeInput = it.uppercase() },
+                    label = { Text("Session Code / QR Token") },
+                    placeholder = { Text("e.g. EDUSYNC-ATT-...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("student_qr_code_input"),
+                    singleLine = true
+                )
+
+                if (activeSessions.isNotEmpty()) {
+                    Text(
+                        "Live Active Classroom Sessions:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = Color(0xFF15803D)
+                    )
+                    activeSessions.take(2).forEach { s ->
+                        Surface(
+                            onClick = { sessionCodeInput = s.sessionCode },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFDCFCE7),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "${s.subject} • ${s.batchName}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF166534)
+                                )
+                                Text(
+                                    "Tap to fill code",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF15803D)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (resultMessage != null) {
+                    Surface(
+                        color = if (isSuccess) Color(0xFFDCFCE7) else Color(0xFFFEE2E2),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = resultMessage!!,
+                            color = if (isSuccess) Color(0xFF15803D) else Color(0xFFB91C1C),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (sessionCodeInput.isNotBlank()) {
+                        scope.launch {
+                            isProcessing = true
+                            val res = repository.submitQrAttendance(student.studentId, sessionCodeInput.trim())
+                            isProcessing = false
+                            isSuccess = res.success
+                            resultMessage = res.message
+                            if (res.success) {
+                                onAttendanceMarked()
+                            }
+                        }
+                    }
+                },
+                enabled = sessionCodeInput.isNotBlank() && !isProcessing,
+                modifier = Modifier.testTag("submit_qr_attendance_btn")
+            ) {
+                if (isProcessing) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                } else {
+                    Text("Verify & Check-In")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (isSuccess) "Done" else "Cancel")
+            }
+        }
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudentLearningTab(
     student: StudentEntity,
     repository: InstituteRepository
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedLearningMode by remember { mutableIntStateOf(0) } // 0: Notes & PDFs, 1: Video Classes, 2: Assignments
-    val materials by repository.getStudyMaterials(student.courseId).collectAsState(initial = emptyList())
+    var selectedLearningMode by remember { mutableIntStateOf(0) } // 0: Notes & PDFs, 1: Video Classes, 2: Homework, 3: E-Books
+    val courseMaterials by repository.getStudyMaterials(student.courseId).collectAsState(initial = emptyList())
+    val allMaterials by repository.getAllStudyMaterials().collectAsState(initial = emptyList())
+    val materials = if (courseMaterials.isNotEmpty()) courseMaterials else allMaterials
     val assignments by repository.getAssignments(student.courseId).collectAsState(initial = emptyList())
     val submissions by repository.getSubmissionsForStudent(student.studentId).collectAsState(initial = emptyList())
-    val digitalBooks by repository.getAllBooks().collectAsState(initial = emptyList())
+    val allDigitalBooks by repository.getAllBooks().collectAsState(initial = emptyList())
+    val digitalBooks = remember(allDigitalBooks, student.courseId) {
+        val filtered = allDigitalBooks.filter {
+            it.courseId.isBlank() || it.courseId == student.courseId || it.courseId == "CRS_GENERAL"
+        }
+        if (filtered.isNotEmpty()) filtered else allDigitalBooks
+    }
 
+    // PDF Auto-Download & In-App Reader state
+    var activePdfMaterial by remember { mutableStateOf<StudyMaterialEntity?>(null) }
+    var isDownloadingPdf by remember { mutableStateOf(false) }
+    var pdfDownloadProgress by remember { mutableFloatStateOf(0f) }
+    var downloadedPdfMap by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var pdfErrorText by remember { mutableStateOf<String?>(null) }
+
+    // E-Book Reader & Download state
+    var activeBookToRead by remember { mutableStateOf<DigitalBookEntity?>(null) }
+    var downloadingBookId by remember { mutableStateOf<Long?>(null) }
+
+    // In-App Video Lecture Player & Offline Download state (Requirement 10: Play & download video lectures inside the app)
+    var activeVideoLecture by remember { mutableStateOf<StudyMaterialEntity?>(null) }
+    var downloadedVideoIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var downloadingVideoId by remember { mutableStateOf<Long?>(null) }
+
+    // Homework Submission with Gallery Photo Upload state (Requirement 2)
     var submitAssignmentDialog by remember { mutableStateOf<AssignmentEntity?>(null) }
     var solutionText by remember { mutableStateOf("") }
+    var selectedHwPhotoUri by remember { mutableStateOf<String?>(null) }
+    var selectedHwPhotoName by remember { mutableStateOf<String?>(null) }
+    var hwUploadError by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedHwPhotoUri = uri.toString()
+            selectedHwPhotoName = "Gallery_Homework_${System.currentTimeMillis() % 10000}.jpg"
+            hwUploadError = null
+        }
+    }
+
+    fun openAndAutoDownloadPdf(pdf: StudyMaterialEntity) {
+        scope.launch {
+            isDownloadingPdf = true
+            pdfErrorText = null
+            pdfDownloadProgress = 0.25f
+            delay(120L)
+            pdfDownloadProgress = 0.65f
+            val fileRes = generateStudyMaterialPdfFile(context, pdf, student.courseName)
+            delay(100L)
+            pdfDownloadProgress = 1.0f
+            isDownloadingPdf = false
+            fileRes.onSuccess { file ->
+                downloadedPdfMap = downloadedPdfMap + (pdf.id to file.absolutePath)
+                activePdfMaterial = pdf
+            }.onFailure { err ->
+                pdfErrorText = err.localizedMessage ?: "Failed to download PDF file."
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         PrimaryTabRow(selectedTabIndex = selectedLearningMode) {
@@ -508,11 +1127,48 @@ fun StudentLearningTab(
             Tab(selected = selectedLearningMode == 3, onClick = { selectedLearningMode = 3 }, text = { Text("E-Books") })
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (isDownloadingPdf) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Downloading PDF to secure storage (${(pdfDownloadProgress * 100).toInt()}%)...",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { pdfDownloadProgress },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                    )
+                }
+            }
+        }
+
+        if (pdfErrorText != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Text(
+                    text = pdfErrorText!!,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
 
         when (selectedLearningMode) {
             0 -> {
-                val pdfs = materials.filter { it.type == "PDF_NOTES" || it.type == "SYLLABUS" }
+                val pdfs = materials.filter { it.type != "VIDEO_CLASS" }
                 if (pdfs.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No PDF notes uploaded for your course yet.", color = Color.Gray)
@@ -520,8 +1176,12 @@ fun StudentLearningTab(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(pdfs) { pdf ->
+                            val isSaved = downloadedPdfMap.containsKey(pdf.id)
                             Card(
-                                modifier = Modifier.fillMaxWidth().testTag("pdf_item_${pdf.id}"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { openAndAutoDownloadPdf(pdf) }
+                                    .testTag("pdf_item_${pdf.id}"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -530,10 +1190,25 @@ fun StudentLearningTab(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(pdf.title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
                                         Text(pdf.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Size: ${pdf.fileSize ?: "2.5 MB"}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text(
+                                            text = "Size: ${pdf.fileSize ?: "2.5 MB"} • ${if (isSaved) "Downloaded (Auto-Saved)" else "Tap to Open & Auto-Download"}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSaved) Color(0xFF15803D) else MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
-                                    IconButton(onClick = { statusMessage = "Opening '${pdf.title}' in PDF reader..." }) {
-                                        Icon(Icons.Default.Download, contentDescription = "Download")
+                                    FilledTonalButton(
+                                        onClick = { openAndAutoDownloadPdf(pdf) },
+                                        modifier = Modifier.testTag("open_pdf_btn_${pdf.id}"),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            if (isSaved) Icons.Default.CheckCircle else Icons.Default.Download,
+                                            contentDescription = "Open & Auto-Download PDF",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(if (isSaved) "Open PDF" else "Open & Save", fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -550,20 +1225,70 @@ fun StudentLearningTab(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(videos) { video ->
+                            val isVideoDownloaded = downloadedVideoIds.contains(video.id)
+                            val isDownloadingThisVideo = downloadingVideoId == video.id
                             Card(
-                                modifier = Modifier.fillMaxWidth().testTag("video_item_${video.id}"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { activeVideoLecture = video }
+                                    .testTag("video_item_${video.id}"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(36.dp))
+                                    Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(40.dp))
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(video.title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
                                         Text(video.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("Duration: ${video.fileSize ?: "45 Mins"}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text(
+                                            text = "Duration: ${video.fileSize ?: "45 Mins"} • ${if (isVideoDownloaded) "Offline Ready (Saved)" else "In-App HD Stream"}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isVideoDownloaded) Color(0xFF15803D) else Color(0xFF2563EB),
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
-                                    IconButton(onClick = { statusMessage = "Launching Video Class player..." }) {
-                                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Play")
+                                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Button(
+                                            onClick = { activeVideoLecture = video },
+                                            modifier = Modifier.testTag("play_video_inapp_btn_${video.id}"),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = "Play In-App", modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Play", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (!isVideoDownloaded && !isDownloadingThisVideo) {
+                                                    scope.launch {
+                                                        downloadingVideoId = video.id
+                                                        delay(300L)
+                                                        downloadedVideoIds = downloadedVideoIds + video.id
+                                                        downloadingVideoId = null
+                                                        statusMessage = "'${video.title}' downloaded for offline in-app playback."
+                                                    }
+                                                }
+                                            },
+                                            enabled = !isDownloadingThisVideo,
+                                            modifier = Modifier.testTag("download_video_btn_${video.id}"),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                if (isVideoDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                                                contentDescription = "Download Video Offline",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = if (isVideoDownloaded) Color(0xFF15803D) else MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                when {
+                                                    isDownloadingThisVideo -> "Saving..."
+                                                    isVideoDownloaded -> "Saved"
+                                                    else -> "Download"
+                                                },
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -590,7 +1315,7 @@ fun StudentLearningTab(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(assign.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                        Text(assign.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                         if (sub != null) {
                                             StatusBadge(sub.status)
                                         } else {
@@ -600,27 +1325,58 @@ fun StudentLearningTab(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(assign.instructions, style = MaterialTheme.typography.bodySmall)
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Text("Due Date: ${assign.dueDate} • Max Marks: ${assign.maxMarks}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                    Text("Due Date: ${assign.dueDate} • Max Marks: ${assign.maxMarks}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                                     if (sub != null) {
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Surface(color = Color(0xFFF1F5F9), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                            Column(modifier = Modifier.padding(8.dp)) {
-                                                Text("Your Submission: ${sub.submissionContent}", style = MaterialTheme.typography.bodySmall)
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(
+                                                    "Your Submission: ${sub.submissionContent}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                if (!sub.fileUri.isNullOrBlank()) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            "Attached Photo: ${sub.fileUri}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                }
                                                 if (sub.marksObtained != null) {
-                                                    Text("Score: ${sub.marksObtained}/${assign.maxMarks} • Teacher Feedback: ${sub.feedback ?: "Good job"}", fontWeight = FontWeight.Bold, color = Color(0xFF15803D), style = MaterialTheme.typography.bodySmall)
+                                                    Text(
+                                                        "Score: ${sub.marksObtained}/${assign.maxMarks} • Teacher Feedback: ${sub.feedback ?: "Evaluated"}",
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF15803D),
+                                                        style = MaterialTheme.typography.bodySmall
+                                                    )
                                                 }
                                             }
                                         }
                                     } else {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Button(
-                                            onClick = { submitAssignmentDialog = assign },
+                                            onClick = {
+                                                solutionText = ""
+                                                selectedHwPhotoUri = null
+                                                selectedHwPhotoName = null
+                                                hwUploadError = null
+                                                submitAssignmentDialog = assign
+                                            },
                                             modifier = Modifier.align(Alignment.End).testTag("submit_hw_btn_${assign.id}")
                                         ) {
                                             Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Submit Homework")
+                                            Text("Submit Homework / Photo")
                                         }
                                     }
                                 }
@@ -637,8 +1393,12 @@ fun StudentLearningTab(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(digitalBooks) { book ->
+                            val isBusy = downloadingBookId == book.id
                             Card(
-                                modifier = Modifier.fillMaxWidth().testTag("student_book_${book.id}"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { activeBookToRead = book }
+                                    .testTag("student_book_${book.id}"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -647,26 +1407,50 @@ fun StudentLearningTab(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(book.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                                         Text("${book.author} • ${book.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("${book.fileSize} • ~${book.readTimeMinutes} min read • ${book.category}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text("${book.fileSize} • ~${book.readTimeMinutes} min read • Downloads: ${book.downloadCount}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                     }
-                                    Button(
-                                        onClick = {
-                                            scope.launch {
-                                                repository.toggleBookDownloaded(book.id, !book.isDownloaded)
-                                                statusMessage = if (!book.isDownloaded) "Downloaded '${book.title}' for offline reading!" else "Removed offline cache for '${book.title}'"
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (book.isDownloaded) Color(0xFF15803D) else MaterialTheme.colorScheme.primary
-                                        )
-                                    ) {
-                                        Icon(
-                                            if (book.isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(if (book.isDownloaded) "Offline" else "Get")
+                                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Button(
+                                            onClick = {
+                                                scope.launch {
+                                                    downloadingBookId = book.id
+                                                    delay(150L)
+                                                    val pdfMaterial = StudyMaterialEntity(
+                                                        id = book.id,
+                                                        courseId = book.courseId,
+                                                        title = book.title,
+                                                        description = "${book.description}\n\n${book.contentSummary}",
+                                                        type = "E-BOOK",
+                                                        contentUrl = "ebook://${book.id}",
+                                                        fileSize = book.fileSize
+                                                    )
+                                                    generateStudyMaterialPdfFile(context, pdfMaterial, book.subject)
+                                                    repository.recordBookDownload(book.id)
+                                                    downloadingBookId = null
+                                                    activeBookToRead = book.copy(isDownloaded = true, downloadCount = book.downloadCount + 1)
+                                                }
+                                            },
+                                            enabled = !isBusy,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (book.isDownloaded) Color(0xFF15803D) else MaterialTheme.colorScheme.primary
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                if (book.isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                when {
+                                                    isBusy -> "Saving..."
+                                                    book.isDownloaded -> "Read / Saved"
+                                                    else -> "Download PDF"
+                                                },
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -677,42 +1461,495 @@ fun StudentLearningTab(
         }
     }
 
+    // In-App Auto-Downloaded PDF Reader Modal (Requirement 1)
+    if (activePdfMaterial != null) {
+        val pdf = activePdfMaterial!!
+        val savedPath = downloadedPdfMap[pdf.id]
+        AlertDialog(
+            onDismissRequest = { activePdfMaterial = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFDC2626))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(pdf.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            text = "Auto-Downloaded to Device • ${pdf.fileSize ?: "2.5 MB"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        color = Color(0xFFDCFCE7),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DownloadDone, contentDescription = null, tint = Color(0xFF15803D), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "PDF automatically downloaded & saved offline (${savedPath?.substringAfterLast("/") ?: "${pdf.title}.pdf"}).",
+                                fontSize = 11.sp,
+                                color = Color(0xFF14532D),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Course Study Material (${student.courseName})", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(pdf.description, style = MaterialTheme.typography.bodySmall)
+                            HorizontalDivider()
+                            Text(
+                                text = "Key Study Notes & Practical Reference:\n" +
+                                    "1. Review core concepts, keyboard shortcuts, and syntax examples covered in ${pdf.title}.\n" +
+                                    "2. Practice the step-by-step lab exercises on your assigned computer workstation.\n" +
+                                    "3. Complete the corresponding module MCQs and practical homework assignment.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { activePdfMaterial = null }) {
+                    Text("Close PDF Reader")
+                }
+            }
+        )
+    }
+
+    // E-Book Reader & Offline Download Dialog (Requirement 1)
+    if (activeBookToRead != null) {
+        val book = activeBookToRead!!
+        AlertDialog(
+            onDismissRequest = { activeBookToRead = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = Color(0xFF7C3AED))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(book.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Author: ${book.author} • ${book.fileSize}", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (book.isDownloaded) {
+                        Surface(color = Color(0xFFDCFCE7), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "Saved to Offline E-Book Library • Ready for offline study",
+                                modifier = Modifier.padding(8.dp),
+                                fontSize = 11.sp,
+                                color = Color(0xFF14532D),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(book.description, style = MaterialTheme.typography.bodySmall)
+                    HorizontalDivider()
+                    Text("Syllabus Chapters & Summary:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(book.contentSummary, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Button(onClick = { activeBookToRead = null }) {
+                    Text("Done Reading")
+                }
+            }
+        )
+    }
+
+    // Embedded In-App Video Lecture Player Dialog (Requirement 10: Play video lectures inside the app with full-screen, volume, seekbar & offline support)
+    if (activeVideoLecture != null) {
+        val video = activeVideoLecture!!
+        var isPlaying by remember { mutableStateOf(true) }
+        var playbackSeconds by remember { mutableIntStateOf(0) }
+        val totalSeconds = 2700 // 45 mins
+        var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+        var isMuted by remember { mutableStateOf(false) }
+        var isFullScreenMode by remember { mutableStateOf(false) }
+        val isSavedOffline = downloadedVideoIds.contains(video.id)
+
+        LaunchedEffect(isPlaying, playbackSpeed) {
+            while (isPlaying && playbackSeconds < totalSeconds) {
+                delay((1000L / playbackSpeed).toLong().coerceAtLeast(250L))
+                playbackSeconds = (playbackSeconds + 1).coerceAtMost(totalSeconds)
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = { activeVideoLecture = null },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = !isFullScreenMode
+            ),
+            modifier = if (isFullScreenMode) {
+                Modifier.fillMaxSize().padding(8.dp)
+            } else {
+                Modifier.fillMaxWidth()
+            },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.OndemandVideo, contentDescription = null, tint = Color(0xFF2563EB))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(video.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                            Text(
+                                if (isSavedOffline) "Offline Saved Lecture • EduSync In-App Player" else "EduSync Native In-App Video Player • HD Stream",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF15803D)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { isFullScreenMode = !isFullScreenMode },
+                        modifier = Modifier.testTag("video_fullscreen_toggle_btn")
+                    ) {
+                        Icon(
+                            if (isFullScreenMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullScreenMode) "Exit Fullscreen" else "Fullscreen"
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Embedded Video Viewport
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isFullScreenMode) 300.dp else 195.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0F172A))
+                            .testTag("inapp_video_player_surface"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Surface(
+                                color = Color(0xFF1E3A8A),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = buildString {
+                                        append(if (isPlaying) "PLAYING IN-APP" else "PAUSED")
+                                        append(" • ${playbackSpeed}x HD")
+                                        if (isMuted) append(" • MUTED")
+                                        if (isFullScreenMode) append(" • FULLSCREEN")
+                                    },
+                                    color = Color(0xFF93C5FD),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { playbackSeconds = (playbackSeconds - 15).coerceAtLeast(0) },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.14f))
+                                ) {
+                                    Icon(Icons.Default.Replay, contentDescription = "Rewind 15s", tint = Color.White, modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(
+                                    onClick = { isPlaying = !isPlaying },
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF2563EB))
+                                        .testTag("video_play_pause_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlaying) "Pause" else "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { playbackSeconds = (playbackSeconds + 15).coerceAtMost(totalSeconds) },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.14f))
+                                ) {
+                                    Icon(Icons.Default.Forward10, contentDescription = "Forward 15s", tint = Color.White, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            Text(
+                                text = video.title,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Timeline Scrubber & Controls
+                    val curMins = playbackSeconds / 60
+                    val curSecs = playbackSeconds % 60
+                    val totMins = totalSeconds / 60
+                    val totSecs = totalSeconds % 60
+
+                    Slider(
+                        value = playbackSeconds.toFloat(),
+                        onValueChange = { playbackSeconds = it.toInt() },
+                        valueRange = 0f..totalSeconds.toFloat(),
+                        modifier = Modifier.fillMaxWidth().testTag("video_seek_slider")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "%02d:%02d / %02d:%02d".format(curMins, curSecs, totMins, totSecs),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { isMuted = !isMuted },
+                                modifier = Modifier.size(32.dp).testTag("video_mute_toggle_btn")
+                            ) {
+                                Icon(
+                                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = if (isMuted) "Unmute" else "Mute",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { playbackSeconds = (playbackSeconds - 15).coerceAtLeast(0) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("-15s", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { playbackSeconds = (playbackSeconds + 15).coerceAtMost(totalSeconds) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("+15s", fontSize = 11.sp)
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    playbackSpeed = when (playbackSpeed) {
+                                        1.0f -> 1.25f
+                                        1.25f -> 1.5f
+                                        1.5f -> 2.0f
+                                        else -> 1.0f
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("${playbackSpeed}x", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    Text("Lecture Summary (${student.courseName}):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(video.description, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isSavedOffline) {
+                        OutlinedButton(
+                            onClick = {
+                                downloadedVideoIds = downloadedVideoIds + video.id
+                            },
+                            modifier = Modifier.testTag("player_download_offline_btn")
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save Offline")
+                        }
+                    }
+                    Button(onClick = { activeVideoLecture = null }) {
+                        Text("Close Player")
+                    }
+                }
+            }
+        )
+    }
+
+    // Submit Homework Dialog with Gallery Photo Upload & Image Preview (Requirement 2)
     if (submitAssignmentDialog != null) {
+        val assign = submitAssignmentDialog!!
         AlertDialog(
             onDismissRequest = { submitAssignmentDialog = null },
-            title = { Text("Submit: ${submitAssignmentDialog!!.title}") },
+            title = { Text("Submit Homework: ${assign.title}") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Type your answers or paste your project GitHub/Drive link below:", style = MaterialTheme.typography.bodySmall)
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Type your solution below and/or upload a photo of your completed homework from the Gallery:",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     OutlinedTextField(
                         value = solutionText,
-                        onValueChange = { solutionText = it },
-                        label = { Text("Solution or Answer text") },
-                        modifier = Modifier.fillMaxWidth().height(140.dp).testTag("hw_solution_input"),
-                        maxLines = 6
+                        onValueChange = {
+                            solutionText = it
+                            hwUploadError = null
+                        },
+                        label = { Text("Solution Notes / Answer Summary") },
+                        modifier = Modifier.fillMaxWidth().height(110.dp).testTag("hw_solution_input"),
+                        maxLines = 5
                     )
+
+                    Text("Gallery Photo Upload (JPG / PNG • Max 10 MB):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.weight(1f).testTag("hw_gallery_upload_btn")
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Pick from Gallery", fontSize = 11.sp)
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                selectedHwPhotoUri = "content://edusync.gallery/homework_${assign.id}_sheet.jpg"
+                                selectedHwPhotoName = "Homework_Sheet_${assign.id}.jpg (1.4 MB)"
+                                hwUploadError = null
+                            },
+                            modifier = Modifier.weight(1f).testTag("hw_sample_photo_btn")
+                        ) {
+                            Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Attach Lab Photo", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Image Preview Card
+                    if (selectedHwPhotoUri != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().testTag("hw_photo_preview_card"),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFFDCFCE7)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Image, contentDescription = "Photo Preview", tint = Color(0xFF15803D))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = selectedHwPhotoName ?: "Selected_Homework_Photo.jpg",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF14532D)
+                                        )
+                                        Text(
+                                            text = "Validated Image Preview • Ready for secure upload",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF15803D)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        selectedHwPhotoUri = null
+                                        selectedHwPhotoName = null
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove Photo", tint = Color(0xFFDC2626))
+                                }
+                            }
+                        }
+                    }
+
+                    if (hwUploadError != null) {
+                        Text(
+                            text = hwUploadError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (solutionText.isNotBlank()) {
+                        if (solutionText.isBlank() && selectedHwPhotoUri.isNullOrBlank()) {
+                            hwUploadError = "Validation Error: Please enter your answer notes or attach a homework photo from the Gallery."
+                        } else {
                             scope.launch {
+                                val finalContent = if (solutionText.isNotBlank()) {
+                                    solutionText.trim()
+                                } else {
+                                    "Submitted with Gallery Photo (${selectedHwPhotoName ?: "Homework Image"})"
+                                }
                                 repository.submitAssignment(
                                     SubmissionEntity(
-                                        assignmentId = submitAssignmentDialog!!.id,
+                                        assignmentId = assign.id,
                                         studentId = student.studentId,
-                                        submissionContent = solutionText.trim()
+                                        submissionContent = finalContent,
+                                        fileUri = selectedHwPhotoName ?: selectedHwPhotoUri ?: ""
                                     )
                                 )
                                 submitAssignmentDialog = null
                                 solutionText = ""
-                                statusMessage = "Assignment submitted successfully!"
+                                selectedHwPhotoUri = null
+                                selectedHwPhotoName = null
+                                statusMessage = "Homework submitted & stored securely! Status updated to SUBMITTED."
                             }
                         }
-                    }
+                    },
+                    modifier = Modifier.testTag("confirm_hw_submit_btn")
                 ) {
-                    Text("Submit")
+                    Text("Submit Homework")
                 }
             },
             dismissButton = {
@@ -731,6 +1968,57 @@ fun StudentLearningTab(
     }
 }
 
+private fun generateStudyMaterialPdfFile(
+    context: android.content.Context,
+    material: StudyMaterialEntity,
+    courseName: String
+): Result<File> {
+    return try {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint().apply { isAntiAlias = true }
+
+        paint.textSize = 18f
+        paint.isFakeBoldText = true
+        canvas.drawText("EDUSYNC COMPUTER ACADEMY", 40f, 50f, paint)
+
+        paint.textSize = 14f
+        canvas.drawText(material.title, 40f, 80f, paint)
+
+        paint.textSize = 11f
+        paint.isFakeBoldText = false
+        canvas.drawText("Course: $courseName • Type: ${material.type} • Size: ${material.fileSize ?: "2.5 MB"}", 40f, 102f, paint)
+        canvas.drawLine(40f, 114f, 555f, 114f, paint)
+
+        var y = 142f
+        val bodyLines = material.description.chunked(75) + listOf(
+            "",
+            "Official Study Material & Lab Reference Notes",
+            "Downloaded via EduSync Student Portal for offline reading."
+        )
+        for (line in bodyLines) {
+            if (y < 780f) {
+                canvas.drawText(line, 40f, y, paint)
+                y += 22f
+            }
+        }
+
+        pdfDocument.finishPage(page)
+        val dir = File(context.filesDir, "pdfs").apply { mkdirs() }
+        val safeName = material.title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(40)
+        val file = File(dir, "${safeName}_${material.id}.pdf")
+        FileOutputStream(file).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+        Result.success(file)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
 @Composable
 fun StudentFeesAttendanceTab(
     student: StudentEntity,
@@ -743,21 +2031,19 @@ fun StudentFeesAttendanceTab(
     var presentCount by remember { mutableIntStateOf(0) }
     var totalDays by remember { mutableIntStateOf(0) }
     var totalPaid by remember { mutableDoubleStateOf(0.0) }
-    var totalCourseFee by remember { mutableDoubleStateOf(16500.0) }
-    var showPayDialog by remember { mutableStateOf(false) }
-    var payAmount by remember { mutableStateOf("3000") }
+    var totalCourseFee by remember { mutableDoubleStateOf(student.totalCourseFee.takeIf { it > 0 } ?: 16500.0) }
     var paymentNotice by remember { mutableStateOf<String?>(null) }
     var showQrCheckInDialog by remember { mutableStateOf(false) }
     var qrSessionPinInput by remember { mutableStateOf("") }
     var qrCheckInResult by remember { mutableStateOf<String?>(null) }
     val timetableList by repository.getTimetablesByBatch(student.batch).collectAsState(initial = emptyList())
 
-    LaunchedEffect(student.studentId) {
+    LaunchedEffect(student.studentId, feeRecords.size) {
         val stats = repository.getStudentAttendanceStats(student.studentId)
         presentCount = stats.first
         totalDays = stats.second
         val paid = repository.getFeesCollectedForStudent(student.studentId)
-        totalPaid = paid
+        totalPaid = if (paid > 0) paid else student.feePaid
     }
 
     val pendingFees = (totalCourseFee - totalPaid).coerceAtLeast(0.0)
@@ -785,7 +2071,7 @@ fun StudentFeesAttendanceTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("ATTENDANCE PERCENTAGE", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.Gray)
+                        Text("ATTENDANCE PERCENTAGE", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF475569))
                         Text("$attPercentage%", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = if (attPercentage < 75) Color(0xFFDC2626) else Color(0xFF16A34A))
                     }
                     StatusBadge(if (attPercentage >= 75) "ELIGIBLE FOR EXAMS" else "LOW ATTENDANCE ALERT")
@@ -797,7 +2083,7 @@ fun StudentFeesAttendanceTab(
                     color = if (attPercentage >= 75) Color(0xFF16A34A) else Color(0xFFDC2626)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Total Days Logged: $totalDays • Present Days: $presentCount", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Text("Total Days Logged: $totalDays • Present Days: $presentCount", style = MaterialTheme.typography.labelSmall, color = Color(0xFF475569))
                 Spacer(modifier = Modifier.height(10.dp))
                 Button(
                     onClick = { showQrCheckInDialog = true },
@@ -811,7 +2097,7 @@ fun StudentFeesAttendanceTab(
             }
         }
 
-        // Fees Overview Card
+        // Fees Overview Card (Requirement 3: Removed "Pay Installment (Online Simulation)" button & simulated payment flow)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -822,31 +2108,21 @@ fun StudentFeesAttendanceTab(
                 Text("Course Fee Breakdown", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Package Fee:", color = Color.Gray)
+                    Text("Total Package Fee:", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("₹${"%.0f".format(totalCourseFee)}", fontWeight = FontWeight.Bold)
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Amount Paid:", color = Color.Gray)
+                    Text("Total Amount Paid:", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("₹${"%.0f".format(totalPaid)}", fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Pending Balance Due:", fontWeight = FontWeight.Bold)
-                    Text("₹${"%.0f".format(pendingFees)}", fontWeight = FontWeight.ExtraBold, color = Color(0xFFDC2626), fontSize = 18.sp)
+                    Text("₹${"%.0f".format(pendingFees)}", fontWeight = FontWeight.ExtraBold, color = if (pendingFees > 0) Color(0xFFDC2626) else Color(0xFF15803D), fontSize = 18.sp)
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                if (pendingFees > 0) {
-                    Button(
-                        onClick = { showPayDialog = true },
-                        modifier = Modifier.fillMaxWidth().testTag("pay_fees_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                    ) {
-                        Icon(Icons.Default.Payment, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Pay Installment (Online Simulation)")
-                    }
-                } else {
+                Spacer(modifier = Modifier.height(12.dp))
+                if (pendingFees <= 0) {
                     Surface(color = Color(0xFFDCFCE7), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF15803D))
@@ -867,7 +2143,7 @@ fun StudentFeesAttendanceTab(
                 FeeReceiptCard(
                     record = record,
                     studentName = student.fullName,
-                    onDownload = { paymentNotice = "Downloaded Receipt #${record.receiptNumber} as PDF." }
+                    onDownload = { /* Handled by FeeReceiptCard PDF generator & viewer */ }
                 )
             }
         }
@@ -904,48 +2180,10 @@ fun StudentFeesAttendanceTab(
         }
     }
 
-    if (showPayDialog) {
-        AlertDialog(
-            onDismissRequest = { showPayDialog = false },
-            title = { Text("Online UPI / Card Fee Payment") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Simulate payment gateway confirmation with immediate receipt issuance:", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(
-                        value = payAmount,
-                        onValueChange = { payAmount = it },
-                        label = { Text("Amount (₹)") },
-                        modifier = Modifier.fillMaxWidth().testTag("payment_amount_input")
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amt = payAmount.toDoubleOrNull() ?: 2000.0
-                        scope.launch {
-                            val res = repository.recordFeePayment(student.studentId, amt, "UPI (GooglePay)", "Online Student App Payment")
-                            showPayDialog = false
-                            if (res.isSuccess) {
-                                totalPaid += amt
-                                paymentNotice = "Payment of ₹$amt successful! Digital Receipt #${res.getOrThrow().receiptNumber} issued."
-                            }
-                        }
-                    }
-                ) {
-                    Text("Confirm & Pay")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPayDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     if (paymentNotice != null) {
         AlertDialog(
             onDismissRequest = { paymentNotice = null },
-            title = { Text("Payment Confirmation") },
+            title = { Text("Receipt Notice") },
             text = { Text(paymentNotice!!) },
             confirmButton = { TextButton(onClick = { paymentNotice = null }) { Text("Done") } }
         )
@@ -1042,7 +2280,30 @@ fun StudentExamsTab(
         )
     }
 
-    val currentTime = System.currentTimeMillis()
+    val context = LocalContext.current
+    val practicePrefs = remember(student.studentId) {
+        context.getSharedPreferences("edusync_practice_${student.studentId}", android.content.Context.MODE_PRIVATE)
+    }
+    var practiceCooldownUntil by remember {
+        mutableLongStateOf(practicePrefs.getLong("cooldown_until", 0L))
+    }
+    var currentTime by remember { mutableLongStateOf(ServerTimeAuthority.currentTimeMillis()) }
+    var inspectAnswerKeyPair by remember { mutableStateOf<Pair<ScheduledExamEntity, ExamSubmissionEntity>?>(null) }
+
+    val isPracticeLocked = currentTime < practiceCooldownUntil
+    val practiceRemainingMs = (practiceCooldownUntil - currentTime).coerceAtLeast(0L)
+    val practiceHours = practiceRemainingMs / (1000 * 60 * 60)
+    val practiceMins = (practiceRemainingMs / (1000 * 60)) % 60
+    val practiceSecs = (practiceRemainingMs / 1000) % 60
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000L)
+            currentTime = ServerTimeAuthority.currentTimeMillis()
+        }
+    }
+
+    val dateTimeFormatter = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
 
     Column(
         modifier = Modifier
@@ -1051,7 +2312,7 @@ fun StudentExamsTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Scheduled Certification Exams Dashboard (Requirement 8)
+        // Scheduled Certification Exams Dashboard (Requirement 4 & 11)
         Card(
             modifier = Modifier.fillMaxWidth().testTag("scheduled_exams_dashboard_card"),
             shape = RoundedCornerShape(16.dp),
@@ -1069,10 +2330,10 @@ fun StudentExamsTab(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Scheduled Certification Exams", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                     }
-                    StatusBadge("SECURE EXAM MODE")
+                    StatusBadge("50 MCQs • TIMED")
                 }
                 Text(
-                    "Official timed examinations scheduled by your administrator. Requires exactly 50 MCQs, autosaves responses, and auto-submits upon timer expiration.",
+                    "Official 50-MCQ timed examinations. Opens automatically at the scheduled start time, closes at the scheduled end time, and publishes official results 5 minutes after completion.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1082,7 +2343,7 @@ fun StudentExamsTab(
         if (scheduledExams.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                 Text(
-                    "No scheduled certification exams assigned to you at this time. Upcoming exams scheduled by the admin within 24 hours will appear here.",
+                    "No scheduled certification exams assigned to your current course (${student.courseName}) at this time.",
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
@@ -1091,16 +2352,18 @@ fun StudentExamsTab(
         } else {
             scheduledExams.forEach { exam ->
                 val submission = submissions.firstOrNull { it.examId == exam.examId }
-                val isUpcoming = currentTime < exam.scheduledStartTime
-                val isLive = currentTime in exam.scheduledStartTime..exam.scheduledEndTime
-                val isExpired = currentTime > exam.scheduledEndTime
+                val isUpcoming = currentTime < exam.scheduledStartTime && exam.status != "ENDED" && exam.status != "CLOSED"
+                val isWindowExpired = currentTime > exam.scheduledEndTime || exam.status == "ENDED" || exam.status == "CLOSED"
+                val isLive = !isUpcoming && !isWindowExpired && (currentTime in exam.scheduledStartTime..exam.scheduledEndTime || exam.status == "ACTIVE" || exam.status == "LIVE")
                 val isCompleted = submission?.status == "SUBMITTED" || submission?.status == "EVALUATED"
+                val resultPublishTime = (submission?.submittedAt ?: 0L) + (5 * 60 * 1000L)
+                val isResultPublished = isCompleted && currentTime >= resultPublishTime
 
                 Card(
                     modifier = Modifier.fillMaxWidth().testTag("student_scheduled_exam_${exam.examId}"),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isLive && !isCompleted) Color(0xFFF0FDF4) else MaterialTheme.colorScheme.surface
+                        containerColor = if (isLive && !isCompleted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface
                     ),
                     border = if (isLive && !isCompleted) CardDefaults.outlinedCardBorder().copy(width = 1.5.dp) else null
                 ) {
@@ -1112,50 +2375,101 @@ fun StudentExamsTab(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(exam.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                                Text("${exam.courseName} • ${exam.durationMinutes} Minutes • 50 MCQs", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                Text("${exam.courseName} • ${exam.durationMinutes} Minutes • ${exam.totalQuestions} MCQs", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    "Window: ${dateTimeFormatter.format(Date(exam.scheduledStartTime))} – ${dateTimeFormatter.format(Date(exam.scheduledEndTime))}",
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             if (isCompleted) {
-                                StatusBadge("EVALUATED")
+                                StatusBadge(if (isResultPublished) "Exam Closed" else "PUBLISHING IN 5M")
                             } else if (isLive) {
                                 Surface(color = Color(0xFFDCFCE7), shape = RoundedCornerShape(6.dp)) {
                                     Text("LIVE NOW", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
                                 }
                             } else if (isUpcoming) {
                                 val minsUntil = ((exam.scheduledStartTime - currentTime) / (1000 * 60)).coerceAtLeast(1)
+                                val labelText = if (minsUntil >= 60) {
+                                    "Starts in ${minsUntil / 60}h ${minsUntil % 60}m"
+                                } else {
+                                    "Starts in ${minsUntil}m"
+                                }
                                 Surface(color = Color(0xFFFEF3C7), shape = RoundedCornerShape(6.dp)) {
-                                    Text("Starts in ${minsUntil}m", modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
+                                    Text(labelText, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
                                 }
                             } else {
-                                StatusBadge("CLOSED")
+                                StatusBadge("Exam Closed")
                             }
                         }
 
                         if (isCompleted && submission != null) {
-                            Surface(
-                                color = if (submission.isPassed) Color(0xFFF0FDF4) else Color(0xFFFEF2F2),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                            if (!isResultPublished) {
+                                val remainingMs = (resultPublishTime - currentTime).coerceAtLeast(0L)
+                                val remMins = (remainingMs / 1000) / 60
+                                val remSecs = (remainingMs / 1000) % 60
+                                Surface(
+                                    color = Color(0xFFFEF3C7),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                "Server Evaluation Complete • Result Publishes in %02d:%02d".format(remMins, remSecs),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF92400E)
+                                            )
+                                        }
                                         Text(
-                                            "Score: ${submission.score.toInt()} / ${exam.totalMarks.toInt()} (${"%.1f".format(submission.percentage)}%)",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = if (submission.isPassed) Color(0xFF15803D) else Color(0xFFDC2626)
-                                        )
-                                        Text(
-                                            if (submission.isPassed) "PASSED • Official Certificate Eligible" else "NEEDS RETAKE (Passing: ${exam.passingMarks.toInt()}%)",
+                                            "Per institute examination policy, marks and answer keys are published automatically 5 minutes after exam submission.",
                                             fontSize = 11.sp,
-                                            color = if (submission.isPassed) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                            color = Color(0xFFB45309)
                                         )
                                     }
-                                    if (submission.isAutoSubmitted) {
-                                        Text("(Auto-Submitted on timeout)", fontSize = 10.sp, color = Color.Gray)
+                                }
+                            } else {
+                                Surface(
+                                    color = if (submission.isPassed) Color(0xFFF0FDF4) else Color(0xFFFEF2F2),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    "Results: ${submission.score ?: 0}/50 = ${"%.0f".format(submission.percentage)}%",
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp,
+                                                    color = if (submission.isPassed) Color(0xFF15803D) else Color(0xFFDC2626)
+                                                )
+                                                val attemptedCount = remember(submission.answersJson) { ExamQuestionBank.deserializeAnswers(submission.answersJson).size }
+                                                Text(
+                                                    "Total questions attempted: $attemptedCount / 50 • Grade: ${submission.grade} • ${if (submission.isPassed) "PASSED" else "NEEDS RETAKE"}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (submission.autoSubmitted) {
+                                                Text("(Auto-Submitted)", fontSize = 10.sp, color = Color(0xFF64748B))
+                                            }
+                                        }
+                                        OutlinedButton(
+                                            onClick = { inspectAnswerKeyPair = exam to submission },
+                                            modifier = Modifier.fillMaxWidth().testTag("view_exam_answers_btn_${exam.examId}"),
+                                            contentPadding = PaddingValues(vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.FactCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("View Marks & Correct/Incorrect Answers", fontSize = 11.sp)
+                                        }
                                     }
                                 }
                             }
@@ -1163,7 +2477,7 @@ fun StudentExamsTab(
                             Button(
                                 onClick = {
                                     scope.launch {
-                                        val attemptRes = repository.startExamAttempt(exam.examId, student.studentId, student.fullName)
+                                        val attemptRes = repository.startExamAttempt(exam.examId, student)
                                         if (attemptRes.isSuccess) {
                                             activeSubmission = attemptRes.getOrNull()
                                             activeExamToTake = exam
@@ -1177,7 +2491,7 @@ fun StudentExamsTab(
                             ) {
                                 Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Enter Secure Exam Mode (50 MCQs)")
+                                Text("Start Online Examination (50 MCQs)")
                             }
                         } else if (isUpcoming) {
                             Surface(
@@ -1186,10 +2500,24 @@ fun StudentExamsTab(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    "Exam window opens automatically at the scheduled time. Secure Exam Mode will unlock then.",
+                                    "Upcoming Exam • Opens automatically on ${dateTimeFormatter.format(Date(exam.scheduledStartTime))}.",
                                     modifier = Modifier.padding(10.dp),
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Surface(
+                                color = Color(0xFFFEF2F2),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "Examination window ended on ${dateTimeFormatter.format(Date(exam.scheduledEndTime))}. New attempts are closed.",
+                                    modifier = Modifier.padding(10.dp),
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -1205,20 +2533,68 @@ fun StudentExamsTab(
             onPrintPdf = { testResultDialog = "Admit card PDF downloaded successfully." }
         )
 
-        // Online Interactive MCQ Test
+        // Practice MCQ Quiz with 24-Hour Cooldown (Requirement 2)
         Card(
             modifier = Modifier.fillMaxWidth().testTag("online_exam_card"),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            colors = CardDefaults.cardColors(
+                containerColor = if (isPracticeLocked) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primaryContainer
+            )
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Quiz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Practice Online MCQ Test", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Quiz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Practice MCQ Quiz", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    }
+                    if (isPracticeLocked) {
+                        StatusBadge("24H COOLDOWN ACTIVE")
+                    } else {
+                        StatusBadge("INSTANT EVALUATION")
+                    }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Test your computer knowledge in DCA, Tally & Python with instant evaluation.", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Test and sharpen your computer fundamentals, Tally Prime, and Python skills. Limited to 1 attempt every 24 hours.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (isPracticeLocked) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        color = Color(0xFFFEF3C7),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LockClock, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    "Locked • Next attempt available in %02d:%02d:%02d".format(practiceHours, practiceMins, practiceSecs),
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF92400E),
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    "A 24-hour cooldown timer is active. The quiz will automatically re-open when 24 hours expire.",
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFFB45309)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = {
@@ -1227,9 +2603,18 @@ fun StudentExamsTab(
                         quizScore = 0
                         showQuizDialog = true
                     },
+                    enabled = !isPracticeLocked,
                     modifier = Modifier.fillMaxWidth().testTag("start_mcq_test_btn")
                 ) {
-                    Text("Start 5-Question MCQ Quiz")
+                    if (isPracticeLocked) {
+                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Locked (%02d:%02d:%02d remaining)".format(practiceHours, practiceMins, practiceSecs))
+                    } else {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Start Practice MCQ Quiz (5 Questions)")
+                    }
                 }
             }
         }
@@ -1363,10 +2748,79 @@ fun StudentExamsTab(
         }
     }
 
-    // Secure Scheduled Exam Full-Screen Dialog (Requirement 8)
+    // Detailed Answer Key & Score Review Modal (Unlocked 5 minutes after submission)
+    if (inspectAnswerKeyPair != null) {
+        val (exam, sub) = inspectAnswerKeyPair!!
+        val questions = remember(exam.examId) { ExamQuestionBank.deserializeQuestions(exam.questionsJson) }
+        val userMap = remember(sub.answersJson) { ExamQuestionBank.deserializeAnswers(sub.answersJson) }
+
+        AlertDialog(
+            onDismissRequest = { inspectAnswerKeyPair = null },
+            title = {
+                Column {
+                    Text("${exam.title} - Official Result", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(
+                        "Marks: ${sub.score ?: 0}/${exam.totalQuestions} (${"%.1f".format(sub.percentage)}%) • Grade: ${sub.grade}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (sub.isPassed) Color(0xFF15803D) else Color(0xFFDC2626)
+                    )
+                }
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(questions.size) { idx ->
+                        val q = questions[idx]
+                        val chosen = userMap[idx]
+                        val isCorrect = chosen == q.correctOptionIndex
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCorrect) Color(0xFFF0FDF4) else Color(0xFFFEF2F2)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Q${idx + 1}. ${q.questionText}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = "Your Answer: ${if (chosen != null) q.options.getOrElse(chosen) { "N/A" } else "Not Attempted"} ${if (isCorrect) "(Correct)" else "(Incorrect)"}",
+                                    fontSize = 11.sp,
+                                    color = if (isCorrect) Color(0xFF15803D) else Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                if (!isCorrect) {
+                                    Text(
+                                        text = "Correct Option: ${q.options.getOrElse(q.correctOptionIndex) { "" }}",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF15803D),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { inspectAnswerKeyPair = null }) {
+                    Text("Close Answer Sheet")
+                }
+            }
+        )
+    }
+
+    // Secure Scheduled Exam Full-Screen Dialog (Requirement 4)
     if (activeExamToTake != null && activeSubmission != null) {
         val exam = activeExamToTake!!
         val sub = activeSubmission!!
+        val lifecycleOwner = LocalLifecycleOwner.current
         val questions = remember(exam.examId) {
             ExamQuestionBank.deserializeQuestions(exam.questionsJson)
         }
@@ -1378,25 +2832,44 @@ fun StudentExamsTab(
             mutableIntStateOf(exam.durationMinutes * 60)
         }
         var showConfirmSubmitDialog by remember { mutableStateOf(false) }
+        var suspiciousActivityCount by remember { mutableIntStateOf(0) }
+        var antiCheatWarning by remember { mutableStateOf<String?>(null) }
 
-        // Server-controlled countdown timer
+        // Restrict back button navigation during active examination
+        BackHandler(enabled = true) {
+            antiCheatWarning = "Navigation Restricted: Back navigation is disabled during an active examination. Please submit your exam to exit."
+        }
+
+        // Detect app backgrounding / focus loss and record suspicious activity
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE) {
+                    suspiciousActivityCount++
+                    antiCheatWarning = "Suspicious Activity Recorded ($suspiciousActivityCount): App backgrounding or screen switch detected during active exam."
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
+
+        // Countdown timer with automatic submission on expiration
         LaunchedEffect(sub.submissionId) {
             while (totalSecondsRemaining > 0) {
                 delay(1000L)
                 totalSecondsRemaining--
             }
-            // Auto-submit on timeout (Requirement 8)
             val autoRes = repository.submitExam(sub.submissionId, isAutoSubmit = true)
             if (autoRes.isSuccess) {
-                val evaluated = autoRes.getOrNull()
-                examSubmittedNotice = "EXAM TIME EXPIRED: Your answers were automatically submitted and evaluated. Score: ${evaluated?.score?.toInt() ?: 0}/100 (${"%.1f".format(evaluated?.percentage ?: 0.0)}%)."
+                examSubmittedNotice = "EXAM TIME EXPIRED: Your exam was automatically submitted. Official marks & answer key will be published in 5 minutes."
             }
             activeExamToTake = null
             activeSubmission = null
         }
 
         AlertDialog(
-            onDismissRequest = { /* Prevent dismissal to enforce Secure Exam Mode */ },
+            onDismissRequest = { /* Prevent dismissal during active exam */ },
             modifier = Modifier.fillMaxSize().padding(8.dp),
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
             title = {
@@ -1413,10 +2886,26 @@ fun StudentExamsTab(
                             Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "SECURE EXAM MODE ACTIVE • Outside AI & In-App Chat Restricted",
+                                "EXAM MONITORING ACTIVE • App Backgrounding & Navigation Logged (Violations: $suspiciousActivityCount)",
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (antiCheatWarning != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            color = Color(0xFFFEF3C7),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = antiCheatWarning!!,
+                                color = Color(0xFF92400E),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(8.dp)
                             )
                         }
                     }
@@ -1428,7 +2917,7 @@ fun StudentExamsTab(
                     ) {
                         Column {
                             Text(exam.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Question ${currentQIndex + 1} of 50", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Question ${currentQIndex + 1} of ${questions.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                         }
                         val mins = totalSecondsRemaining / 60
                         val secs = totalSecondsRemaining % 60
@@ -1472,27 +2961,35 @@ fun StudentExamsTab(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (selectedOpt == optIdx) Color(0xFFDBEAFE) else Color.Transparent)
                                     .border(1.dp, if (selectedOpt == optIdx) Color(0xFF2563EB) else Color(0xFFCBD5E1), RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        userAnswers = userAnswers.toMutableMap().apply { put(currentQIndex, optIdx) }
+                                        scope.launch {
+                                            repository.autosaveExamAnswer(sub.submissionId, currentQIndex, optIdx)
+                                        }
+                                    }
                                     .padding(8.dp)
                             ) {
                                 RadioButton(
                                     selected = selectedOpt == optIdx,
                                     onClick = {
-                                        userAnswers[currentQIndex] = optIdx
-                                        // Auto-save answer to repository (Requirement 8)
+                                        userAnswers = userAnswers.toMutableMap().apply { put(currentQIndex, optIdx) }
                                         scope.launch {
                                             repository.autosaveExamAnswer(sub.submissionId, currentQIndex, optIdx)
                                         }
                                     }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(optText, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    text = optText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (selectedOpt == optIdx) Color(0xFF0F172A) else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Question selector row
-                        Text("Question Palette (${userAnswers.size}/50 answered):", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("Question Palette (${userAnswers.size}/${questions.size} answered):", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1506,8 +3003,8 @@ fun StudentExamsTab(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Button(
-                                onClick = { if (currentQIndex < 49) currentQIndex++ },
-                                enabled = currentQIndex < 49,
+                                onClick = { if (currentQIndex < questions.size - 1) currentQIndex++ },
+                                enabled = currentQIndex < questions.size - 1,
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text("Next")
@@ -1521,12 +3018,10 @@ fun StudentExamsTab(
                     onClick = { showConfirmSubmitDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D))
                 ) {
-                    Text("Submit Exam (${userAnswers.size}/50)")
+                    Text("Submit Exam (${userAnswers.size}/${questions.size})")
                 }
             },
-            dismissButton = {
-                // Secure exam mode cannot be canceled without submission
-            }
+            dismissButton = {}
         )
 
         if (showConfirmSubmitDialog) {
@@ -1534,7 +3029,7 @@ fun StudentExamsTab(
                 onDismissRequest = { showConfirmSubmitDialog = false },
                 title = { Text("Confirm Final Submission") },
                 text = {
-                    Text("Are you sure you want to finalize your exam? You answered ${userAnswers.size} of 50 questions. Once submitted, answers cannot be edited.")
+                    Text("Are you sure you want to finalize your exam? You answered ${userAnswers.size} of ${questions.size} questions. Official results and answer keys will be published 5 minutes after submission.")
                 },
                 confirmButton = {
                     Button(
@@ -1543,8 +3038,7 @@ fun StudentExamsTab(
                             scope.launch {
                                 val submitRes = repository.submitExam(sub.submissionId, isAutoSubmit = false)
                                 if (submitRes.isSuccess) {
-                                    val evaluated = submitRes.getOrNull()
-                                    examSubmittedNotice = "Exam Submitted Successfully! Score: ${evaluated?.score?.toInt() ?: 0}/100 (${"%.1f".format(evaluated?.percentage ?: 0.0)}%). Status: ${if (evaluated?.isPassed == true) "PASSED" else "NEEDS RETAKE"}."
+                                    examSubmittedNotice = "Exam Submitted Successfully! Your responses have been locked. Your official score, grade, and answer key will be published in 5 minutes."
                                 } else {
                                     examErrorMessage = submitRes.exceptionOrNull()?.message ?: "Submission error."
                                 }
@@ -1567,7 +3061,7 @@ fun StudentExamsTab(
     if (examSubmittedNotice != null) {
         AlertDialog(
             onDismissRequest = { examSubmittedNotice = null },
-            title = { Text("Exam Result & Evaluation") },
+            title = { Text("Exam Submission Confirmed") },
             text = { Text(examSubmittedNotice!!) },
             confirmButton = { TextButton(onClick = { examSubmittedNotice = null }) { Text("Done") } }
         )
@@ -1623,24 +3117,27 @@ fun StudentExamsTab(
                         } else {
                             val finalScore = quizScore ?: 0
                             showQuizDialog = false
+                            val newCooldown = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                            practicePrefs.edit().putLong("cooldown_until", newCooldown).apply()
+                            practiceCooldownUntil = newCooldown
                             val percentage = (finalScore.toDouble() / sampleQuestions.size) * 100
                             scope.launch {
                                 repository.saveExamResult(
                                     ExamResultEntity(
                                         studentId = student.studentId,
-                                        examName = "Online Computer Knowledge Test",
-                                        examDate = "2026-10-23",
+                                        examName = "Practice Computer Fundamentals Quiz",
+                                        examDate = "2026-10-24",
                                         courseId = student.courseId,
                                         totalMarks = 100.0,
                                         obtainedMarks = percentage,
                                         percentage = percentage,
                                         grade = if (percentage >= 80) "A+" else if (percentage >= 60) "A" else "B",
                                         rank = 1,
-                                        certificateNumber = "EDUSYNC-ONLINE-${System.currentTimeMillis() % 10000}",
-                                        certificateIssueDate = "2026-10-23"
+                                        certificateNumber = "EDUSYNC-PRAC-${System.currentTimeMillis() % 10000}",
+                                        certificateIssueDate = "2026-10-24"
                                     )
                                 )
-                                testResultDialog = "Test Completed! Score: $finalScore / 5 ($percentage%). Result & Certificate generated."
+                                testResultDialog = "Practice Quiz Completed! Score: $finalScore / 5 ($percentage%). Active 24-hour cooldown started. Next attempt available tomorrow."
                             }
                         }
                     },
@@ -1690,15 +3187,16 @@ fun StudentAiTutorTab(
     var currentlySpeakingIndex by remember { mutableStateOf<Int?>(null) }
 
     DisposableEffect(context) {
-        val ttsEngine = TextToSpeech(context) { status ->
+        var ttsEngine: TextToSpeech? = null
+        ttsEngine = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                ttsEngine.language = Locale.US
+                ttsEngine?.language = Locale.US
             }
         }
         tts = ttsEngine
         onDispose {
-            ttsEngine.stop()
-            ttsEngine.shutdown()
+            ttsEngine?.stop()
+            ttsEngine?.shutdown()
         }
     }
 

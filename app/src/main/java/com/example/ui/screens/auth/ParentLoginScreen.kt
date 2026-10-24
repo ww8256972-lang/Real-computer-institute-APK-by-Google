@@ -113,7 +113,7 @@ fun ParentLoginScreen(
                     Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Demo Guardian: guardian / Parent123\nLinked to Student: Amit Kumar (STU-2026-001)",
+                        text = "Demo Guardian: guardian / Parent123\nLinked to Student: Rahul Sharma (EDU-2026-1001)",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }

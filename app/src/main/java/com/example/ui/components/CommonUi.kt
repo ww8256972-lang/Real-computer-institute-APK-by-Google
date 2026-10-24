@@ -33,6 +33,7 @@ fun EduSyncTopAppBar(
     subtitle: String? = null,
     showBackButton: Boolean = false,
     onBackClick: () -> Unit = {},
+    showThemeToggle: Boolean = false,
     isDarkTheme: Boolean = false,
     onToggleTheme: () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {}
@@ -68,14 +69,16 @@ fun EduSyncTopAppBar(
             }
         },
         actions = {
-            IconButton(
-                onClick = onToggleTheme,
-                modifier = Modifier.testTag("theme_toggle_button")
-            ) {
-                Icon(
-                    imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                    contentDescription = "Toggle Theme"
-                )
+            if (showThemeToggle) {
+                IconButton(
+                    onClick = onToggleTheme,
+                    modifier = Modifier.testTag("theme_toggle_button")
+                ) {
+                    Icon(
+                        imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        contentDescription = "Toggle Theme"
+                    )
+                }
             }
             actions()
         },

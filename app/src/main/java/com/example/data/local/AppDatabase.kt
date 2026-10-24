@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.core.ExamQuestionBank
 import com.example.core.SecurityUtils
 import com.example.data.local.dao.*
 import com.example.data.local.entity.*
@@ -300,9 +301,33 @@ abstract class AppDatabase : RoomDatabase() {
                         )
                     )
                 }
-                // Ensure Guardian and Digital Books exist
-                if (db.parentGuardianDao().getGuardianByUsername("guardian") == null) {
+                // Ensure Guardian and Digital Books exist and fix any legacy STU-2026-001 link
+                val existingGuardian = db.parentGuardianDao().getGuardianByUsername("guardian")
+                if (existingGuardian == null) {
                     seedNewModules(db)
+                } else if (existingGuardian.linkedStudentId == "STU-2026-001") {
+                    db.parentGuardianDao().updateGuardian(
+                        existingGuardian.copy(linkedStudentId = "EDU-2026-1001")
+                    )
+                }
+                if (db.scheduledExamDao().getExamById("EXM-2026-ADCA-01") == null) {
+                    val defaultQuestions = ExamQuestionBank.getDefault50Questions("CRS_ADCA")
+                    db.scheduledExamDao().insertExam(
+                        ScheduledExamEntity(
+                            examId = "EXM-2026-ADCA-01",
+                            title = "ADCA Comprehensive Online Examination (50 MCQs)",
+                            courseId = "CRS_ADCA",
+                            courseName = "Advance Diploma in Computer Applications (ADCA)",
+                            scheduledStartTime = System.currentTimeMillis() - 3600_000L,
+                            durationMinutes = 45,
+                            totalQuestions = 50,
+                            passingMarks = 20,
+                            questionsJson = ExamQuestionBank.serializeQuestions(defaultQuestions),
+                            assignedStudentIds = "ALL",
+                            status = "ACTIVE",
+                            createdByName = "Prof. Rajesh Sharma"
+                        )
+                    )
                 }
             }
 
@@ -815,10 +840,22 @@ abstract class AppDatabase : RoomDatabase() {
                         guardianId = "GRD-2026-001",
                         username = "guardian",
                         passwordHash = guardianHash,
-                        fullName = "Ramesh Kumar Sharma",
+                        fullName = "Ramesh Sharma",
                         phone = "+91 98765 43210",
                         email = "ramesh.sharma@example.com",
-                        linkedStudentId = "STU-2026-001",
+                        linkedStudentId = "EDU-2026-1001",
+                        relationship = "Father"
+                    )
+                )
+                db.parentGuardianDao().insertGuardian(
+                    ParentGuardianEntity(
+                        guardianId = "GRD-2026-002",
+                        username = "parent_priya",
+                        passwordHash = guardianHash,
+                        fullName = "Sunil Verma",
+                        phone = "+91 98234 56789",
+                        email = "sunil.verma@example.com",
+                        linkedStudentId = "EDU-2026-1002",
                         relationship = "Father"
                     )
                 )
@@ -827,9 +864,9 @@ abstract class AppDatabase : RoomDatabase() {
                 db.certificateDao().insertCertificate(
                     DigitalCertificateEntity(
                         certificateNumber = "CERT-2026-8941",
-                        studentId = "STU-2026-001",
-                        studentName = "Amit Kumar",
-                        rollNo = "EDUSYNC-2026-101",
+                        studentId = "EDU-2026-1001",
+                        studentName = "Rahul Sharma",
+                        rollNo = "1001",
                         courseId = "CRS_ADCA",
                         courseName = "Advance Diploma in Computer Applications (ADCA)",
                         grade = "A+",
@@ -843,7 +880,7 @@ abstract class AppDatabase : RoomDatabase() {
                 // Initial Learning Goals
                 db.learningGoalDao().insertGoal(
                     LearningGoalEntity(
-                        studentId = "STU-2026-001",
+                        studentId = "EDU-2026-1001",
                         courseId = "CRS_ADCA",
                         title = "Master Advanced Excel Macros & VBA",
                         description = "Complete 5 automated ledger scripts and pivot analysis.",
@@ -855,7 +892,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.learningGoalDao().insertGoal(
                     LearningGoalEntity(
-                        studentId = "STU-2026-001",
+                        studentId = "EDU-2026-1001",
                         courseId = "CRS_ADCA",
                         title = "Tally Prime GST Voucher Entry",
                         description = "Practice sales, purchase, and debit note voucher transactions.",
@@ -869,7 +906,7 @@ abstract class AppDatabase : RoomDatabase() {
                 // Initial Achievement Badges
                 db.achievementBadgeDao().insertBadge(
                     AchievementBadgeEntity(
-                        studentId = "STU-2026-001",
+                        studentId = "EDU-2026-1001",
                         badgeCode = "PERFECT_ATTENDANCE",
                         badgeName = "Attendance Champion",
                         description = "Maintained greater than 90% attendance across the quarter.",
@@ -880,13 +917,32 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.achievementBadgeDao().insertBadge(
                     AchievementBadgeEntity(
-                        studentId = "STU-2026-001",
+                        studentId = "EDU-2026-1001",
                         badgeCode = "EXAM_EXCELLENCE",
                         badgeName = "Distinction Scholar",
                         description = "Scored 92% in Financial Accounting & Tally Examination.",
                         category = "EXAM_PERFECTION",
                         awardedDate = "2026-10-15",
                         iconName = "WorkspacePremium"
+                    )
+                )
+
+                // Initial 50-MCQ Scheduled Online Exam
+                val defaultQuestions = ExamQuestionBank.getDefault50Questions("CRS_ADCA")
+                db.scheduledExamDao().insertExam(
+                    ScheduledExamEntity(
+                        examId = "EXM-2026-ADCA-01",
+                        title = "ADCA Comprehensive Online Examination (50 MCQs)",
+                        courseId = "CRS_ADCA",
+                        courseName = "Advance Diploma in Computer Applications (ADCA)",
+                        scheduledStartTime = System.currentTimeMillis() - 3600_000L,
+                        durationMinutes = 45,
+                        totalQuestions = 50,
+                        passingMarks = 20,
+                        questionsJson = ExamQuestionBank.serializeQuestions(defaultQuestions),
+                        assignedStudentIds = "ALL",
+                        status = "ACTIVE",
+                        createdByName = "Prof. Rajesh Sharma"
                     )
                 )
 
