@@ -47,8 +47,8 @@ fun AdminLoginScreen(
     onToggleTheme: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var username by remember { mutableStateOf("admin") }
-    var password by remember { mutableStateOf("Admin123") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -285,7 +285,7 @@ fun AdminLoginScreen(
                             return@Button
                         }
                         scope.launch {
-                            val res = authRepository.changeAdminPassword("Admin123", newPassword)
+                            val res = authRepository.changeAdminPassword(password, newPassword)
                             if (res.isSuccess) {
                                 showForcedChangeDialog = false
                                 onAdminLoginSuccess()
@@ -315,8 +315,8 @@ fun TeacherLoginScreen(
     onToggleTheme: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var username by remember { mutableStateOf("prof_sharma") }
-    var password by remember { mutableStateOf("Teacher@123") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -478,8 +478,8 @@ fun StudentLoginScreen(
     onToggleTheme: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var usernameOrId by remember { mutableStateOf("EDU-2026-1001") }
-    var password by remember { mutableStateOf("Student@123") }
+    var usernameOrId by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
