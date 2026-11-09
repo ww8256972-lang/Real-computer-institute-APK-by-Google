@@ -10,7 +10,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.aistudio.edusync.zqmrkp"
@@ -142,6 +142,7 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

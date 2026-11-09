@@ -30,7 +30,7 @@ jobs:
       - name: Setup Android SDK Licenses
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          yes | sdkmanager --licenses || true
+          yes | sdkmanager --licenses
 
       - name: Configure Environment Secrets (.env)
         run: |
@@ -52,12 +52,13 @@ jobs:
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
             echo "Decoding release upload keystore..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
             echo "HAVE_RELEASE_KEYSTORE=true" >> $GITHUB_ENV
           else
-            echo "HAVE_RELEASE_KEYSTORE=false" >> $GITHUB_ENV
+            echo "Error: RELEASE_KEYSTORE_BASE64 secret is missing. Release build cannot proceed securely."
+            exit 1
           fi
 
       - name: Grant Execute Permission for Gradle Wrapper
@@ -78,7 +79,7 @@ jobs:
 
       - name: Build Release APK
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/app/keystore.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}

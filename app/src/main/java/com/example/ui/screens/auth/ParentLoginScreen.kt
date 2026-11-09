@@ -37,8 +37,8 @@ fun ParentLoginScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit
 ) {
-    var username by remember { mutableStateOf("guardian") }
-    var password by remember { mutableStateOf("Parent123") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }

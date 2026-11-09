@@ -53,11 +53,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun feeReminderDao(): FeeReminderDao
     abstract fun examResultDao(): ExamResultDao
     abstract fun academicDao(): AcademicDao
-    abstract fun adminDao(): AdminDao
-    abstract fun timetableDao(): TimetableDao
+    abstract fun noticeDao(): NoticeDao
+    abstract fun adminAccountDao(): AdminAccountDao
+    abstract fun auditLogDao(): AuditLogDao
     abstract fun qrAttendanceDao(): QRAttendanceDao
     abstract fun parentGuardianDao(): ParentGuardianDao
-    abstract fun certificateDao(): CertificateDao
+    abstract fun certificateDao(): DigitalCertificateDao
     abstract fun learningGoalDao(): LearningGoalDao
     abstract fun achievementBadgeDao(): AchievementBadgeDao
     abstract fun digitalBookDao(): DigitalBookDao
@@ -75,49 +76,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE students ADD COLUMN gender TEXT NOT NULL DEFAULT 'Male'")
                 db.execSQL("ALTER TABLE students ADD COLUMN totalCourseFee REAL NOT NULL DEFAULT 15000.0")
                 db.execSQL("ALTER TABLE students ADD COLUMN feePaid REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'")
+                db.execSQL("ALTER TABLE students ADD COLUMN blockReason TEXT")
             }
         }
 
         val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS timetables (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        dayOfWeek TEXT NOT NULL,
-                        courseId TEXT NOT NULL,
-                        courseName TEXT NOT NULL,
-                        batchName TEXT NOT NULL,
-                        subject TEXT NOT NULL,
-                        teacherId TEXT NOT NULL,
-                        teacherName TEXT NOT NULL,
-                        roomOrLab TEXT NOT NULL,
-                        startTime TEXT NOT NULL,
-                        endTime TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'SCHEDULED'
-                    )
-                """.trimIndent())
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_timetables_batchName ON timetables(batchName)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_timetables_teacherId ON timetables(teacherId)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_timetables_dayOfWeek ON timetables(dayOfWeek)")
-
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS qr_attendance_sessions (
-                        sessionId TEXT PRIMARY KEY NOT NULL,
-                        sessionCode TEXT NOT NULL,
-                        batchName TEXT NOT NULL,
-                        courseId TEXT NOT NULL,
-                        teacherId TEXT NOT NULL,
-                        teacherName TEXT NOT NULL,
-                        date TEXT NOT NULL,
-                        subject TEXT NOT NULL,
-                        createdTime INTEGER NOT NULL,
-                        expiryTime INTEGER NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'ACTIVE'
-                    )
-                """.trimIndent())
-                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_qr_attendance_sessions_sessionCode ON qr_attendance_sessions(sessionCode)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_qr_attendance_sessions_batchName ON qr_attendance_sessions(batchName)")
-
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS parent_guardians (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -128,18 +93,18 @@ abstract class AppDatabase : RoomDatabase() {
                         phone TEXT NOT NULL,
                         email TEXT NOT NULL,
                         linkedStudentId TEXT NOT NULL,
-                        relationship TEXT NOT NULL DEFAULT 'Parent',
-                        status TEXT NOT NULL DEFAULT 'ACTIVE',
-                        createdAt INTEGER NOT NULL
+                        relationship TEXT NOT NULL,
+                        lastLogin INTEGER,
+                        status TEXT NOT NULL DEFAULT 'ACTIVE'
                     )
                 """.trimIndent())
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_parent_guardians_guardianId ON parent_guardians(guardianId)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_parent_guardians_username ON parent_guardians(username)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_parent_guardians_linkedStudentId ON parent_guardians(linkedStudentId)")
 
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS digital_certificates (
-                        certificateNumber TEXT PRIMARY KEY NOT NULL,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        certificateNumber TEXT NOT NULL,
                         studentId TEXT NOT NULL,
                         studentName TEXT NOT NULL,
                         rollNo TEXT NOT NULL,
@@ -147,17 +112,13 @@ abstract class AppDatabase : RoomDatabase() {
                         courseName TEXT NOT NULL,
                         grade TEXT NOT NULL,
                         issueDate TEXT NOT NULL,
-                        issuedBy TEXT NOT NULL DEFAULT 'Director of Computer Examinations',
+                        issuedBy TEXT NOT NULL,
                         status TEXT NOT NULL DEFAULT 'VALID',
-                        cancellationReason TEXT,
-                        cancelledBy TEXT,
-                        cancelledAt INTEGER,
                         verificationToken TEXT NOT NULL
                     )
                 """.trimIndent())
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_digital_certificates_certificateNumber ON digital_certificates(certificateNumber)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_digital_certificates_verificationToken ON digital_certificates(verificationToken)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_digital_certificates_studentId ON digital_certificates(studentId)")
 
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS learning_goals (
@@ -169,8 +130,8 @@ abstract class AppDatabase : RoomDatabase() {
                         targetDate TEXT NOT NULL,
                         progressPercent INTEGER NOT NULL DEFAULT 0,
                         isCompleted INTEGER NOT NULL DEFAULT 0,
-                        assignedBy TEXT NOT NULL DEFAULT 'Self',
-                        createdAt INTEGER NOT NULL
+                        createdAt INTEGER NOT NULL,
+                        assignedBy TEXT NOT NULL DEFAULT 'System'
                     )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_learning_goals_studentId ON learning_goals(studentId)")
@@ -249,9 +210,9 @@ abstract class AppDatabase : RoomDatabase() {
                         autoSubmitted INTEGER NOT NULL DEFAULT 0
                     )
                 """.trimIndent())
-                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_exam_submissions_examId_studentId ON exam_submissions(examId, studentId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_submissions_examId ON exam_submissions(examId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_submissions_studentId ON exam_submissions(studentId)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_submissions_status ON exam_submissions(status)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_exam_submissions_examId_studentId ON exam_submissions(examId, studentId)")
             }
         }
 
@@ -264,7 +225,6 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .addCallback(DatabaseCallback())
-                    .fallbackToDestructiveMigration(dropAllTables = false)
                     .build()
                 INSTANCE = instance
                 instance
@@ -285,82 +245,32 @@ abstract class AppDatabase : RoomDatabase() {
                 super.onOpen(db)
                 INSTANCE?.let { database ->
                     CoroutineScope(Dispatchers.IO).launch {
-                        ensureAdminAccount(database)
+                        val count = database.adminAccountDao().getTotalAdminCountDirect()
+                        if (count == 0) {
+                            populateInitialData(database)
+                        }
                     }
                 }
             }
 
-            private suspend fun ensureAdminAccount(db: AppDatabase) {
-                val adminHash = SecurityUtils.hashPassword("Admin123")
-                if (db.adminDao().getAdmin("admin") == null) {
-                    db.adminDao().insertAdmin(
-                        AdminAccountEntity(
-                            username = "admin",
-                            passwordHash = adminHash,
-                            isInitialPassword = false
-                        )
-                    )
-                }
-                // Ensure Guardian and Digital Books exist and fix any legacy STU-2026-001 link
-                val existingGuardian = db.parentGuardianDao().getGuardianByUsername("guardian")
-                if (existingGuardian == null) {
-                    seedNewModules(db)
-                } else if (existingGuardian.linkedStudentId == "STU-2026-001") {
-                    db.parentGuardianDao().updateGuardian(
-                        existingGuardian.copy(linkedStudentId = "EDU-2026-1001")
-                    )
-                }
-                if (db.scheduledExamDao().getExamById("EXM-2026-ADCA-01") == null) {
-                    val defaultQuestions = ExamQuestionBank.getDefault50Questions("CRS_ADCA")
-                    db.scheduledExamDao().insertExam(
-                        ScheduledExamEntity(
-                            examId = "EXM-2026-ADCA-01",
-                            title = "ADCA Comprehensive Online Examination (50 MCQs)",
-                            courseId = "CRS_ADCA",
-                            courseName = "Advance Diploma in Computer Applications (ADCA)",
-                            scheduledStartTime = System.currentTimeMillis() - 3600_000L,
-                            durationMinutes = 45,
-                            totalQuestions = 50,
-                            passingMarks = 20,
-                            questionsJson = ExamQuestionBank.serializeQuestions(defaultQuestions),
-                            assignedStudentIds = "ALL",
-                            status = "ACTIVE",
-                            createdByName = "Prof. Rajesh Sharma"
-                        )
-                    )
-                }
-            }
-
             private suspend fun populateInitialData(db: AppDatabase) {
-                // 1. Initial Admin Accounts (Bootstrap: admin / Admin123)
+                // Initial Admin
                 val adminHash = SecurityUtils.hashPassword("Admin123")
-                db.adminDao().insertAdmin(
+                db.adminAccountDao().insertAdmin(
                     AdminAccountEntity(
                         username = "admin",
                         passwordHash = adminHash,
-                        isInitialPassword = false
-                    )
-                )
-                db.adminDao().insertAdmin(
-                    AdminAccountEntity(
-                        username = "Admin123",
-                        passwordHash = adminHash,
-                        isInitialPassword = false
+                        fullName = "Waqar Administrator",
+                        email = "admin@waqarinstitute.edu",
+                        phone = "+91 99999 88888",
+                        role = "SUPER_ADMIN",
+                        isActive = true,
+                        isInitialPassword = true
                     )
                 )
 
-                // 2. Initial Courses
+                // Initial Courses
                 val courses = listOf(
-                    CourseEntity(
-                        id = "CRS_DCA",
-                        name = "Diploma in Computer Applications (DCA)",
-                        code = "DCA-101",
-                        duration = "6 Months",
-                        totalFees = 9500.0,
-                        description = "Fundamentals of Computers, MS Office Suite, Internet & Email, Operating Systems.",
-                        syllabus = "Module 1: Computer Fundamentals\nModule 2: MS Windows & Linux Basics\nModule 3: MS Word, Excel, PowerPoint\nModule 4: Internet, Cybersecurity & Email Management",
-                        modulesCount = 4
-                    ),
                     CourseEntity(
                         id = "CRS_ADCA",
                         name = "Advance Diploma in Computer Applications (ADCA)",
@@ -373,465 +283,183 @@ abstract class AppDatabase : RoomDatabase() {
                     ),
                     CourseEntity(
                         id = "CRS_TALLY",
-                        name = "Tally Prime with Advanced GST & E-Way Bill",
-                        code = "TAL-301",
+                        name = "Certificate in Financial Accounting (Tally Prime)",
+                        code = "TALLY-501",
                         duration = "3 Months",
-                        totalFees = 6500.0,
-                        description = "Professional accounting with Inventory, Payroll, GST Reconciliation, TDS, and Financial Statements.",
-                        syllabus = "1. Accounting Fundamentals & Ledgers\n2. Inventory & Stock Groups\n3. GST Returns (GSTR-1, 3B)\n4. Payroll & TDS\n5. Balance Sheet & Audit Reports",
-                        modulesCount = 5
-                    ),
-                    CourseEntity(
-                        id = "CRS_WEB",
-                        name = "Full Stack Web Development",
-                        code = "WEB-401",
-                        duration = "6 Months",
-                        totalFees = 18000.0,
-                        description = "Frontend to backend development with HTML, CSS, JavaScript, React, Node.js, and SQL/MongoDB.",
-                        syllabus = "1. HTML5 & Modern CSS3 Flex/Grid\n2. Modern JavaScript (ES6+)\n3. React.js & State Management\n4. REST API & Database Integration\n5. Capstone Project Deployment",
-                        modulesCount = 6
-                    ),
-                    CourseEntity(
-                        id = "CRS_PYTHON",
-                        name = "Python Programming & Data Analytics",
-                        code = "PY-501",
-                        duration = "4 Months",
-                        totalFees = 12500.0,
-                        description = "Python syntax, OOP concepts, Pandas, NumPy, Data Visualization, and Automation scripts.",
-                        syllabus = "1. Python Basics & Control Structures\n2. OOP & Functions\n3. NumPy & Pandas\n4. Matplotlib & Data Cleaning\n5. Automation Project",
-                        modulesCount = 5
-                    ),
-                    CourseEntity(
-                        id = "CRS_CCC",
-                        name = "Course on Computer Concepts (CCC)",
-                        code = "CCC-001",
-                        duration = "3 Months",
-                        totalFees = 4000.0,
-                        description = "Government certified computer literacy course covering digital literacy, LibreOffice, and e-governance.",
-                        syllabus = "1. Introduction to Computer\n2. GUI Operating System\n3. LibreOffice Writer, Calc, Impress\n4. Digital Financial Services & Cyber Security",
+                        totalFees = 4500.0,
+                        description = "Professional accounting certification with GST compliance and payroll management.",
+                        syllabus = "Fundamentals of Accounting, Inventory Vouchers, Cost Centres, TDS & GST Returns, e-Way Bills.",
                         modulesCount = 4
                     )
                 )
-                db.courseDao().insertCourses(courses)
+                db.courseDao().insertBatch(courses)
 
-                // 3. Initial Teachers
-                val teacherPassHash = SecurityUtils.hashPassword("Teacher@123")
+                // Initial Batches
+                val batches = listOf(
+                    BatchEntity(
+                        id = "BCH_ADCA_MORN",
+                        courseId = "CRS_ADCA",
+                        name = "ADCA Morning Zenith",
+                        timing = "09:00 AM - 10:30 AM",
+                        startDate = "2026-08-01",
+                        teacherId = "TCH-101",
+                        capacity = 30,
+                        enrolledCount = 2,
+                        status = "ACTIVE"
+                    )
+                )
+                db.batchDao().insertBatch(batches)
+
+                // Initial Teachers
+                val teacherHash = SecurityUtils.hashPassword("Teacher@123")
                 val teachers = listOf(
                     TeacherEntity(
                         teacherId = "TCH-101",
                         username = "prof_sharma",
-                        passwordHash = teacherPassHash,
-                        fullName = "Prof. Rajesh Sharma",
-                        email = "rajesh.sharma@edusync.org",
-                        phone = "9823114455",
-                        specialization = "Tally Prime & Accounting",
-                        assignedBatches = "Morning (09:00 AM - 11:00 AM)",
-                        isBatchAdmin = true,
-                        status = "ACTIVE"
+                        passwordHash = teacherHash,
+                        fullName = "Rajesh Sharma",
+                        email = "rajesh.sharma@waqarinstitute.edu",
+                        phone = "+91 98765 00001",
+                        specialization = "Advanced Accounting & Tax (Tally)",
+                        status = "ACTIVE",
+                        isInitialPassword = true
                     ),
                     TeacherEntity(
                         teacherId = "TCH-102",
                         username = "anita_deshmukh",
-                        passwordHash = teacherPassHash,
+                        passwordHash = teacherHash,
                         fullName = "Anita Deshmukh",
-                        email = "anita.deshmukh@edusync.org",
-                        phone = "9733221100",
-                        specialization = "Full Stack Web & Python",
-                        assignedBatches = "Evening (05:00 PM - 07:00 PM)",
-                        isBatchAdmin = true,
-                        status = "ACTIVE"
-                    ),
-                    TeacherEntity(
-                        teacherId = "TCH-103",
-                        username = "vikram_singh",
-                        passwordHash = teacherPassHash,
-                        fullName = "Vikram Singh",
-                        email = "vikram.singh@edusync.org",
-                        phone = "9944556677",
-                        specialization = "DCA & MS Office Suite",
-                        assignedBatches = "Afternoon (01:00 PM - 03:00 PM)",
-                        isBatchAdmin = false,
-                        status = "ACTIVE"
+                        email = "anita.web@waqarinstitute.edu",
+                        phone = "+91 98765 00002",
+                        specialization = "Web & Graphic Design",
+                        status = "ACTIVE",
+                        isInitialPassword = true
                     )
                 )
-                db.teacherDao().insertTeachers(teachers)
+                db.teacherDao().insertBatch(teachers)
 
-                // 4. Initial Batches
-                val batches = listOf(
-                    BatchEntity(
-                        id = "BATCH_MRN_1",
-                        name = "Morning (09:00 AM - 11:00 AM)",
-                        courseId = "CRS_ADCA",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        timing = "09:00 AM - 11:00 AM",
-                        assignedTeacherId = "TCH-101",
-                        assignedTeacherName = "Prof. Rajesh Sharma",
-                        batchAdminTeacherId = "TCH-101",
-                        batchAdminTeacherName = "Prof. Rajesh Sharma"
-                    ),
-                    BatchEntity(
-                        id = "BATCH_AFT_1",
-                        name = "Afternoon (01:00 PM - 03:00 PM)",
-                        courseId = "CRS_TALLY",
-                        courseName = "Tally Prime with Advanced GST & E-Way Bill",
-                        timing = "01:00 PM - 03:00 PM",
-                        assignedTeacherId = "TCH-103",
-                        assignedTeacherName = "Vikram Singh",
-                        batchAdminTeacherId = "TCH-101",
-                        batchAdminTeacherName = "Prof. Rajesh Sharma"
-                    ),
-                    BatchEntity(
-                        id = "BATCH_EVN_1",
-                        name = "Evening (05:00 PM - 07:00 PM)",
-                        courseId = "CRS_WEB",
-                        courseName = "Full Stack Web Development",
-                        timing = "05:00 PM - 07:00 PM",
-                        assignedTeacherId = "TCH-102",
-                        assignedTeacherName = "Anita Deshmukh",
-                        batchAdminTeacherId = "TCH-102",
-                        batchAdminTeacherName = "Anita Deshmukh"
-                    )
-                )
-                db.batchDao().insertBatches(batches)
-
-                // 5. Initial Demo Students
-                val studentPassHash = SecurityUtils.hashPassword("Student@123")
+                // Initial Students
+                val studentHash = SecurityUtils.hashPassword("Student@123")
                 val students = listOf(
                     StudentEntity(
                         studentId = "EDU-2026-1001",
-                        rollNo = "1001",
-                        username = "rahul_sharma",
-                        passwordHash = studentPassHash,
+                        username = "EDU-2026-1001", // Match ID initially
+                        passwordHash = studentHash,
                         fullName = "Rahul Sharma",
-                        fatherName = "Ramesh Sharma",
-                        motherName = "Sunita Sharma",
-                        gender = "Male",
-                        email = "rahul.sharma@example.com",
-                        phone = "9876543210",
-                        dateOfBirth = "2003-08-14",
-                        address = "Plot 42, Green Avenue, Sector 5",
-                        guardianName = "Ramesh Sharma",
+                        rollNo = "1001",
+                        batch = "ADCA Morning Zenith",
                         courseId = "CRS_ADCA",
                         courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batch = "Morning (09:00 AM - 11:00 AM)",
-                        enrollmentDate = "2026-01-05",
-                        feeDueDate = "2026-10-15",
+                        email = "rahul.s@example.com",
+                        phone = "+91 98765 12345",
+                        gender = "Male",
+                        fatherName = "Ramesh Sharma",
+                        motherName = "Sita Sharma",
                         totalCourseFee = 16500.0,
-                        feePaid = 10000.0,
-                        status = "ACTIVE"
+                        feePaid = 5000.0,
+                        status = "ACTIVE",
+                        isTemporaryPassword = true
                     ),
                     StudentEntity(
                         studentId = "EDU-2026-1002",
-                        rollNo = "1002",
-                        username = "priya_verma",
-                        passwordHash = studentPassHash,
+                        username = "priya.verma",
+                        passwordHash = studentHash,
                         fullName = "Priya Verma",
+                        rollNo = "1002",
+                        batch = "ADCA Morning Zenith",
+                        courseId = "CRS_ADCA",
+                        courseName = "Advance Diploma in Computer Applications (ADCA)",
+                        email = "priya.v@example.com",
+                        phone = "+91 98234 56780",
+                        gender = "Female",
                         fatherName = "Sunil Verma",
-                        motherName = "Rekha Verma",
-                        gender = "Female",
-                        email = "priya.verma@example.com",
-                        phone = "9823456789",
-                        dateOfBirth = "2004-02-21",
-                        address = "Flat 102, Shanti Vihar",
-                        guardianName = "Sunil Verma",
-                        courseId = "CRS_TALLY",
-                        courseName = "Tally Prime with Advanced GST & E-Way Bill",
-                        batch = "Afternoon (01:00 PM - 03:00 PM)",
-                        enrollmentDate = "2026-01-15",
-                        feeDueDate = "2026-10-10",
-                        totalCourseFee = 6500.0,
-                        feePaid = 6500.0,
-                        status = "ACTIVE"
-                    ),
-                    StudentEntity(
-                        studentId = "EDU-2026-1003",
-                        rollNo = "1003",
-                        username = "amit_patel",
-                        passwordHash = studentPassHash,
-                        fullName = "Amit Patel",
-                        fatherName = "Bhupendra Patel",
-                        motherName = "Geeta Patel",
-                        gender = "Male",
-                        email = "amit.patel@example.com",
-                        phone = "9712345678",
-                        dateOfBirth = "2002-11-30",
-                        address = "Near Railway Station, Ward 8",
-                        guardianName = "Bhupendra Patel",
-                        courseId = "CRS_WEB",
-                        courseName = "Full Stack Web Development",
-                        batch = "Evening (05:00 PM - 07:00 PM)",
-                        enrollmentDate = "2026-02-01",
-                        feeDueDate = "2026-11-01",
-                        totalCourseFee = 18000.0,
-                        feePaid = 12000.0,
-                        status = "ACTIVE"
-                    ),
-                    StudentEntity(
-                        studentId = "EDU-2026-1004",
-                        rollNo = "1004",
-                        username = "sneha_singh",
-                        passwordHash = studentPassHash,
-                        fullName = "Sneha Singh",
-                        fatherName = "Rajendra Singh",
-                        motherName = "Kavita Singh",
-                        gender = "Female",
-                        email = "sneha.singh@example.com",
-                        phone = "9988776655",
-                        dateOfBirth = "2003-04-12",
-                        address = "Civil Lines, Near City Park",
-                        guardianName = "Rajendra Singh",
-                        courseId = "CRS_DCA",
-                        courseName = "Diploma in Computer Applications (DCA)",
-                        batch = "Morning (09:00 AM - 11:00 AM)",
-                        enrollmentDate = "2026-02-10",
-                        feeDueDate = "2026-10-18",
-                        totalCourseFee = 9500.0,
-                        feePaid = 9500.0,
-                        status = "ACTIVE"
+                        motherName = "Kavita Verma",
+                        totalCourseFee = 16500.0,
+                        feePaid = 16500.0,
+                        status = "ACTIVE",
+                        isTemporaryPassword = true
                     )
                 )
                 db.studentDao().insertBatch(students)
 
-                // 6. Sample Fee Records (with Counter vs Online distinction)
-                val feeRecords = listOf(
-                    FeeRecordEntity(
-                        receiptNumber = "REC-2026-0001",
-                        studentId = "EDU-2026-1001",
-                        studentName = "Rahul Sharma",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batch = "Morning (09:00 AM - 11:00 AM)",
-                        amount = 6000.0,
-                        paymentDate = "2026-01-05",
-                        paymentMethod = "Cash (Office Counter)",
-                        paymentType = "MANUAL_COUNTER",
-                        transactionId = "OFC-REC/260105/98214",
-                        remarks = "First Admission Installment - Office Counter",
-                        recordedBy = "Admin Console"
-                    ),
-                    FeeRecordEntity(
-                        receiptNumber = "REC-2026-0002",
-                        studentId = "EDU-2026-1001",
-                        studentName = "Rahul Sharma",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batch = "Morning (09:00 AM - 11:00 AM)",
-                        amount = 4000.0,
-                        paymentDate = "2026-02-15",
-                        paymentMethod = "Bank NEFT Transfer",
-                        paymentType = "MANUAL_COUNTER",
-                        transactionId = "NEFT/260215/1124",
-                        remarks = "Second Quarter Installment - Direct Bank Deposit",
-                        recordedBy = "Admin Console"
-                    ),
-                    FeeRecordEntity(
-                        receiptNumber = "REC-2026-0003",
-                        studentId = "EDU-2026-1002",
-                        studentName = "Priya Verma",
-                        courseName = "Tally Prime with Advanced GST & E-Way Bill",
-                        batch = "Afternoon (01:00 PM - 03:00 PM)",
-                        amount = 6500.0,
-                        paymentDate = "2026-01-15",
-                        paymentMethod = "Cash (Office Counter)",
-                        paymentType = "MANUAL_COUNTER",
-                        transactionId = "OFC-REC/260115/004",
-                        remarks = "Full Course Fee Paid with Discount",
-                        recordedBy = "Admin Console"
-                    )
-                )
-                feeRecords.forEach { db.feeRecordDao().insertFeeRecord(it) }
-
-                // 7. Sample Attendance
-                val attendance = listOf(
-                    AttendanceEntity(studentId = "EDU-2026-1001", date = "2026-10-18", status = "PRESENT", markedByTeacherId = "TCH-101"),
-                    AttendanceEntity(studentId = "EDU-2026-1001", date = "2026-10-19", status = "PRESENT", markedByTeacherId = "TCH-101"),
-                    AttendanceEntity(studentId = "EDU-2026-1001", date = "2026-10-20", status = "PRESENT", markedByTeacherId = "TCH-101"),
-                    AttendanceEntity(studentId = "EDU-2026-1001", date = "2026-10-21", status = "ABSENT", remarks = "Medical Leave", markedByTeacherId = "TCH-101"),
-                    AttendanceEntity(studentId = "EDU-2026-1001", date = "2026-10-22", status = "PRESENT", markedByTeacherId = "TCH-101"),
-                    AttendanceEntity(studentId = "EDU-2026-1002", date = "2026-10-21", status = "PRESENT", markedByTeacherId = "TCH-103"),
-                    AttendanceEntity(studentId = "EDU-2026-1002", date = "2026-10-22", status = "PRESENT", markedByTeacherId = "TCH-103")
-                )
-                db.attendanceDao().markBatchAttendance(attendance)
-
-                // 8. Sample Exam Results
-                db.examResultDao().insertResult(
-                    ExamResultEntity(
-                        studentId = "EDU-2026-1001",
-                        examName = "ADCA Semester 1 Final Examination",
-                        examDate = "2026-09-25",
-                        courseId = "CRS_ADCA",
-                        totalMarks = 100.0,
-                        obtainedMarks = 92.0,
-                        percentage = 92.0,
-                        grade = "A+",
-                        rank = 1,
-                        isPublished = true,
-                        certificateNumber = "EDUSYNC-CERT-2026-0041",
-                        certificateIssueDate = "2026-10-01"
-                    )
-                )
-
-                // 9. Initial Study Materials
-                val materials = listOf(
-                    StudyMaterialEntity(
-                        courseId = "CRS_ADCA",
-                        title = "Chapter 1: MS Word & Office Productivity Notes",
-                        description = "Complete guide with shortcut keys, formatting tricks, and mail merge tutorials.",
-                        type = "PDF_NOTES",
-                        contentUrl = "https://edusync.institute/notes/adca_ch1.pdf",
-                        fileSize = "4.2 MB"
-                    ),
-                    StudyMaterialEntity(
-                        courseId = "CRS_ADCA",
-                        title = "Lecture 12: Tally Prime Voucher Entries & GST",
-                        description = "Video recording explaining Sales, Purchase, Contra, and Payment vouchers in Tally Prime.",
-                        type = "VIDEO_CLASS",
-                        contentUrl = "https://www.youtube.com/watch?v=sample_video_adca",
-                        fileSize = "48 Mins (HD)"
-                    ),
-                    StudyMaterialEntity(
-                        courseId = "CRS_WEB",
-                        title = "Complete JavaScript ES6 Handbook",
-                        description = "Arrow functions, Promises, Async/Await, and DOM manipulation notes with code snippets.",
-                        type = "PDF_NOTES",
-                        contentUrl = "https://edusync.institute/notes/js_es6_handbook.pdf",
-                        fileSize = "6.8 MB"
-                    )
-                )
-                db.academicDao().insertStudyMaterials(materials)
-
-                // 10. Initial Assignments (with batch targeting and creator tag)
-                val assignments = listOf(
-                    AssignmentEntity(
-                        courseId = "CRS_ADCA",
-                        title = "Create Monthly Balance Sheet in MS Excel",
-                        instructions = "Design a professional ledger balance sheet using VLOOKUP, SUMIFS, and Pivot Tables.",
-                        dueDate = "2026-10-30",
-                        maxMarks = 50,
-                        batchName = "Morning (09:00 AM - 11:00 AM)",
-                        createdById = "TCH-101",
-                        createdByName = "Prof. Rajesh Sharma"
-                    ),
-                    AssignmentEntity(
-                        courseId = "CRS_WEB",
-                        title = "Build Responsive Portfolio Landing Page",
-                        instructions = "Create a mobile-first HTML/CSS portfolio with navbar, projects grid, and contact form.",
-                        dueDate = "2026-11-05",
-                        maxMarks = 100,
-                        batchName = "Evening (05:00 PM - 07:00 PM)",
-                        createdById = "TCH-102",
-                        createdByName = "Anita Deshmukh"
-                    )
-                )
-                db.academicDao().insertAssignments(assignments)
-
-                // 11. Initial Notices
-                val notices = listOf(
-                    NoticeEntity(
-                        title = "Upcoming Quarterly Exam Schedule",
-                        content = "The Quarterly Offline & Online examinations will commence from 15th November 2026. Students must clear any pending fees to download their Admit Cards.",
-                        priority = "IMPORTANT",
-                        category = "EXAM",
-                        date = "2026-10-20"
-                    ),
-                    NoticeEntity(
-                        title = "Diwali & National Holiday Closure Notice",
-                        content = "Institute premises will remain closed from 28th October to 2nd November for festive holidays. Online video classes and practice assignments remain accessible in the app.",
-                        priority = "GENERAL",
-                        category = "HOLIDAY",
-                        date = "2026-10-21"
-                    )
-                )
-                db.academicDao().insertNotices(notices)
-
-                // 12. Initial Audit Log
-                db.adminDao().insertAuditLog(
-                    AuditLogEntity(
-                        action = "SYSTEM_INITIALIZATION",
-                        performedBy = "System Bootstrap",
-                        details = "Database initialized with Teachers, Batches, Courses, and Role-Based Permissions."
-                    )
-                )
-
-                // 13. Seed New Modules (Timetable, Books, Badges, Certificates, Guardian)
-                seedNewModules(db)
-            }
-
-            private suspend fun seedNewModules(db: AppDatabase) {
                 // Initial Timetables
                 val timetables = listOf(
                     TimetableEntity(
-                        dayOfWeek = "Monday",
+                        batchId = "BCH_ADCA_MORN",
+                        batchName = "ADCA Morning Zenith",
                         courseId = "CRS_ADCA",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batchName = "Morning (09:00 AM - 11:00 AM)",
-                        subject = "Tally Prime with GST",
-                        teacherId = "TCH-101",
-                        teacherName = "Prof. Rajesh Sharma",
-                        roomOrLab = "Lab 1 (Accounting Systems)",
+                        dayOfWeek = "MONDAY",
                         startTime = "09:00 AM",
-                        endTime = "10:30 AM"
+                        endTime = "10:30 AM",
+                        subject = "Computer Fundamentals & OS",
+                        teacherId = "TCH-102",
+                        teacherName = "Anita Deshmukh",
+                        roomOrLab = "Lab 1",
+                        isPractical = true
                     ),
                     TimetableEntity(
-                        dayOfWeek = "Tuesday",
+                        batchId = "BCH_ADCA_MORN",
+                        batchName = "ADCA Morning Zenith",
                         courseId = "CRS_ADCA",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batchName = "Morning (09:00 AM - 11:00 AM)",
+                        dayOfWeek = "TUESDAY",
+                        startTime = "09:00 AM",
+                        endTime = "10:30 AM",
                         subject = "Desktop Publishing (Corel & Photoshop)",
                         teacherId = "TCH-102",
                         teacherName = "Anita Deshmukh",
-                        roomOrLab = "Lab 2 (Graphics Studio)",
-                        startTime = "09:00 AM",
-                        endTime = "10:30 AM"
+                        roomOrLab = "Lab 2",
+                        isPractical = true
                     ),
                     TimetableEntity(
-                        dayOfWeek = "Wednesday",
-                        courseId = "CRS_PYTHON",
-                        courseName = "Python Programming & Data Science",
-                        batchName = "Evening (05:00 PM - 07:00 PM)",
-                        subject = "Python OOP & Pandas",
-                        teacherId = "TCH-103",
-                        teacherName = "Vikram Singh",
-                        roomOrLab = "Lab 3 (Development)",
-                        startTime = "05:00 PM",
-                        endTime = "06:30 PM"
-                    ),
-                    TimetableEntity(
-                        dayOfWeek = "Thursday",
-                        courseId = "CRS_DCA",
-                        courseName = "Diploma in Computer Applications (DCA)",
-                        batchName = "Afternoon (01:00 PM - 03:00 PM)",
-                        subject = "MS Excel Advanced & VLOOKUP",
-                        teacherId = "TCH-101",
-                        teacherName = "Prof. Rajesh Sharma",
-                        roomOrLab = "Room 102",
-                        startTime = "01:00 PM",
-                        endTime = "02:30 PM"
-                    ),
-                    TimetableEntity(
-                        dayOfWeek = "Friday",
+                        batchId = "BCH_ADCA_MORN",
+                        batchName = "ADCA Morning Zenith",
                         courseId = "CRS_ADCA",
-                        courseName = "Advance Diploma in Computer Applications (ADCA)",
-                        batchName = "Morning (09:00 AM - 11:00 AM)",
-                        subject = "Web Fundamentals (HTML5/CSS3)",
+                        dayOfWeek = "WEDNESDAY",
+                        startTime = "09:00 AM",
+                        endTime = "10:30 AM",
+                        subject = "Financial Accounting Tally Prime",
+                        teacherId = "TCH-101",
+                        teacherName = "Rajesh Sharma",
+                        roomOrLab = "Lab 1",
+                        isPractical = true
+                    ),
+                    TimetableEntity(
+                        batchId = "BCH_ADCA_MORN",
+                        batchName = "ADCA Morning Zenith",
+                        courseId = "CRS_ADCA",
+                        dayOfWeek = "THURSDAY",
+                        startTime = "09:00 AM",
+                        endTime = "10:30 AM",
+                        subject = "MS Office (Word, Excel, Ppt)",
                         teacherId = "TCH-102",
                         teacherName = "Anita Deshmukh",
-                        roomOrLab = "Lab 1 (Accounting Systems)",
-                        startTime = "09:00 AM",
-                        endTime = "10:30 AM"
-                    ),
-                    TimetableEntity(
-                        dayOfWeek = "Saturday",
-                        courseId = "CRS_PYTHON",
-                        courseName = "Python Programming & Data Science",
-                        batchName = "Evening (05:00 PM - 07:00 PM)",
-                        subject = "Practical Project Review & Lab Work",
-                        teacherId = "TCH-103",
-                        teacherName = "Vikram Singh",
-                        roomOrLab = "Lab 3 (Development)",
-                        startTime = "05:00 PM",
-                        endTime = "06:30 PM"
+                        roomOrLab = "Lab 2",
+                        isPractical = true
                     )
                 )
-                db.timetableDao().insertTimetables(timetables)
+                db.academicDao().insertTimetables(timetables)
+
+                // Initial Notices
+                db.noticeDao().insertNotice(
+                    NoticeEntity(
+                        title = "DCA Batch Mid-Term Examination Schedule",
+                        content = "All students of the DCA Evening batch are hereby informed that the mid-term practical examinations will be held starting from next Monday. Please ensure your fee dues are cleared.",
+                        date = "2026-10-15",
+                        category = "EXAM",
+                        targetAudience = "STUDENT",
+                        authorId = "ADMIN"
+                    )
+                )
+                db.noticeDao().insertNotice(
+                    NoticeEntity(
+                        title = "Staff Meeting: Implementation of New Syllabus",
+                        content = "A mandatory staff meeting is scheduled for Saturday at 2:00 PM to discuss the integration of Python programming modules into the Advanced ADCA curriculum.",
+                        date = "2026-10-10",
+                        category = "ACADEMIC",
+                        targetAudience = "TEACHER",
+                        authorId = "ADMIN"
+                    )
+                )
 
                 // Initial Parent / Guardian (Username: guardian, Password: Parent123)
                 val guardianHash = SecurityUtils.hashPassword("Parent123")
